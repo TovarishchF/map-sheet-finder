@@ -1,0 +1,135 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    display: flex;
+    height: 100vh;
+}
+
+/* Стили для боковой панели */
+.sidebar {
+    width: 320px;
+    background: #f5f5f5;
+    border-right: 1px solid #ccc;
+    padding: 20px;
+    overflow-y: auto;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+    z-index: 10;
+}
+
+.sidebar h1 {
+    font-size: 1.5em;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.subtitle {
+    color: #666;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+}
+
+/* Панели внутри сайдбара */
+.search-panel, .info-panel, .scale-controls {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.search-panel input {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.search-panel button {
+    background: #1976d2;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+    font-weight: bold;
+}
+
+.search-panel button:hover {
+    background: #1565c0;
+}
+
+.hint {
+    font-size: 0.8em;
+    color: #888;
+    margin-top: 8px;
+    text-align: center;
+}
+
+/* Информационная панель */
+.info-panel p {
+    margin-bottom: 8px;
+}
+
+/* Кнопки масштабов */
+.scale-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.scale-buttons button {
+    background: #eee;
+    border: 1px solid #ccc;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    flex: 1 0 calc(33% - 8px);
+}
+
+.scale-buttons button:hover {
+    background: #ddd;
+}
+
+/* Легенда */
+.legend {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+}
+
+.legend p {
+    margin-bottom: 5px;
+}
+
+/* Контейнер карты */
+#map {
+    flex: 1;
+    height: 100vh;
+}
+
+/* Адаптивность */
+@media (max-width: 600px) {
+    #app {
+        flex-direction: column;
+    }
+    .sidebar {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid #ccc;
+    }
+}
