@@ -581,6 +581,17 @@ body {
     .scale-buttons button {
         flex: 1 0 100%;
     }
+
+    .copyright {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    }
+    .github-link {
+        margin-left: 0;
+        border-left: none;
+        padding-left: 0;
+    }
 }
 
 .leaflet-overlay-pane path.leaflet-interactive[stroke="#d32f2f"],
@@ -590,4 +601,29 @@ body {
 .leaflet-overlay-pane path.leaflet-interactive[stroke="#1976d2"],
 .leaflet-overlay-pane path.leaflet-interactive[stroke="#1976D2"] {
     stroke: #1976d2 !important;
+}
+
+.github-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    color: #64748b;
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: color 0.15s;
+    border-left: 1px solid #e2e8f0;
+    padding-left: 8px;
+}
+
+.github-link:hover {
+    color: #0f172a;
+}
+
+.github-link svg {
+    opacity: 0.7;
+}
+
+.github-link:hover svg {
+    opacity: 1;
 }
