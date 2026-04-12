@@ -4,6 +4,10 @@
     padding: 0;
 }
 
+:root {
+    color-scheme: light only;
+}
+
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     height: 100vh;
@@ -244,7 +248,7 @@ body {
     display: inline-block;
     width: 14px;
     height: 3px;
-    background: #1e293b;
+    background: #d32f2f;
     border-radius: 2px;
 }
 
@@ -252,7 +256,7 @@ body {
     display: inline-block;
     width: 14px;
     height: 3px;
-    background: #3b82f6;
+    background: #1976d2;
     border-radius: 2px;
 }
 
@@ -286,7 +290,7 @@ body {
 .crosshair::after {
     content: '';
     position: absolute;
-    background-color: #1e293b;
+    background-color: #d32f2f;
     box-shadow: 0 0 4px rgba(0,0,0,0.2);
 }
 
@@ -450,6 +454,10 @@ body {
     line-height: 1.2;
 }
 
+.leaflet-interactive {
+    stroke: #1976d2;
+}
+
 @media (max-width: 1024px) {
     .top-bar {
         flex-wrap: wrap;
@@ -503,8 +511,8 @@ body {
         order: 2;
     }
     #map {
-        height: 50vh;
-        min-height: 300px;
+        height: 70vh;
+        min-height: 350px;
         order: 1;
     }
     .top-bar {
@@ -573,4 +581,13 @@ body {
     .scale-buttons button {
         flex: 1 0 100%;
     }
+}
+
+.leaflet-overlay-pane path.leaflet-interactive[stroke="#d32f2f"],
+.leaflet-overlay-pane path.leaflet-interactive[stroke="#D32F2F"] {
+    stroke: #d32f2f !important;
+}
+.leaflet-overlay-pane path.leaflet-interactive[stroke="#1976d2"],
+.leaflet-overlay-pane path.leaflet-interactive[stroke="#1976D2"] {
+    stroke: #1976d2 !important;
 }
