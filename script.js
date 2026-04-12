@@ -11,6 +11,7 @@ const errorEl = document.getElementById('error-message');
 const backBtn = document.getElementById('back-btn');
 const nextScalePanel = document.getElementById('next-scale-panel');
 const nextScaleButtons = document.getElementById('next-scale-buttons');
+const closeScalePanelBtn = document.getElementById('close-scale-panel');
 const ambiguousModal = document.getElementById('ambiguous-scale-modal');
 const modalOverlay = document.getElementById('modal-overlay');
 const modalMessage = document.getElementById('modal-message');
@@ -498,8 +499,12 @@ function updateGrid() {
             const match = sheet.nomenclature.match(/\(([^)]+)\)/);
             if (match) labelText = match[1];
         }
-        const icon = L.divIcon({ className: 'sheet-label', html: labelText, iconSize: null });
-        L.marker(sheet.bounds.getCenter(), { icon, interactive: false }).addTo(gridLayer);
+
+        layer.bindTooltip(labelText, {
+            permanent: true,
+            direction: 'center',
+            className: 'sheet-label'
+        });
     });
 
     updateBackButtonState();
@@ -560,7 +565,10 @@ function goBack() {
         if (currentSheetLayer) map.removeLayer(currentSheetLayer);
         currentSheetLayer = null;
         document.getElementById('current-nomenclature').textContent = '—';
-        document.getElementById('current-bounds').innerHTML = '—';
+        document.getElementById('bound-north').textContent = '—';
+        document.getElementById('bound-south').textContent = '—';
+        document.getElementById('bound-west').textContent = '—';
+        document.getElementById('bound-east').textContent = '—';
         map.setView([55.751244, 37.618423], 6);
         nextScalePanel.style.display = 'none';
     } else {
@@ -581,8 +589,10 @@ function goBack() {
                 style: { color: '#d32f2f', weight: 3, fillOpacity: 0.1 }
             }).addTo(map);
             document.getElementById('current-nomenclature').textContent = activeParent.nomenclature;
-            document.getElementById('current-bounds').innerHTML =
-                `С: ${bounds.getNorth().toFixed(4)}°<br>Ю: ${bounds.getSouth().toFixed(4)}°<br>З: ${bounds.getWest().toFixed(4)}°<br>В: ${bounds.getEast().toFixed(4)}°`;
+            document.getElementById('bound-north').textContent = bounds.getNorth().toFixed(4) + '°';
+            document.getElementById('bound-south').textContent = bounds.getSouth().toFixed(4) + '°';
+            document.getElementById('bound-west').textContent = bounds.getWest().toFixed(4) + '°';
+            document.getElementById('bound-east').textContent = bounds.getEast().toFixed(4) + '°';
 
             updateGrid();
             map.fitBounds(bounds, { padding: [50, 50] });
@@ -627,8 +637,10 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     }).addTo(map);
 
     document.getElementById('current-nomenclature').textContent = nomenclature;
-    document.getElementById('current-bounds').innerHTML =
-        `С: ${bounds.getNorth().toFixed(4)}°<br>Ю: ${bounds.getSouth().toFixed(4)}°<br>З: ${bounds.getWest().toFixed(4)}°<br>В: ${bounds.getEast().toFixed(4)}°`;
+    document.getElementById('bound-north').textContent = bounds.getNorth().toFixed(4) + '°';
+    document.getElementById('bound-south').textContent = bounds.getSouth().toFixed(4) + '°';
+    document.getElementById('bound-west').textContent = bounds.getWest().toFixed(4) + '°';
+    document.getElementById('bound-east').textContent = bounds.getEast().toFixed(4) + '°';
 
     map.fitBounds(bounds, { padding: [50, 50] });
 
@@ -768,6 +780,11 @@ document.getElementById('go-coords-btn').addEventListener('click', () => {
 });
 
 if (backBtn) backBtn.addEventListener('click', goBack);
+if (closeScalePanelBtn) {
+    closeScalePanelBtn.addEventListener('click', () => {
+        nextScalePanel.style.display = 'none';
+    });
+}
 
 window.addEventListener('load', () => {
     historyStack = [{ nomenclature: null, bounds: null, scale: null }];
