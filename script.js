@@ -19,6 +19,7 @@ const selectOption1 = document.getElementById('select-option1');
 const selectOption2 = document.getElementById('select-option2');
 
 let pendingNomenclature = null;
+let pendingAmbiguityType = null;
 
 function showError(text) {
     errorEl.textContent = text;
@@ -82,17 +83,17 @@ function cleanNomenclature(nom) {
     return nom.replace(/\s*\(Ю\.П\.\)\s*/i, '').trim();
 }
 
-// --- Проверка неоднозначности: только римские I-IX ---
+// --- Проверка неоднозначности (только римские I-IX) ---
 function checkAmbiguity(nomenclature) {
     const cleaned = cleanNomenclature(nomenclature);
     const parts = cleaned.split('-');
-    if (parts.length < 2) return null;
+    if (parts.length < 3) return null;
 
-    for (let i = 1; i < parts.length; i++) {
-        const part = parts[i];
-        if (/^[IVX]+$/i.test(part)) {
+    if (parts.length === 3) {
+        const lastPart = parts[2];
+        if (/^[IVX]+$/i.test(lastPart)) {
             const romanValues = { 'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9 };
-            if (romanValues.hasOwnProperty(part.toUpperCase())) {
+            if (romanValues.hasOwnProperty(lastPart.toUpperCase())) {
                 return 'roman';
             }
         }
@@ -100,17 +101,98 @@ function checkAmbiguity(nomenclature) {
     return null;
 }
 
-// --- Разбор номенклатуры с возможным принудительным масштабом ---
+// --- Определение масштаба по структуре номенклатуры ---
+function getScaleFromNomenclature(nom, forcedScale = null) {
+    const cleaned = cleanNomenclature(nom);
+
+    if (cleaned.includes('(')) {
+        const afterBracket = cleaned.split('(')[1].split(')')[0];
+        if (afterBracket.includes('-')) return '2k';
+        else return '5k';
+    }
+
+    // Учитываем запятые в миллионной части (сдвоенные/счетверённые) – это всё равно 1M
+    const parts = cleaned.split('-');
+    const len = parts.length;
+
+    if (len === 1) return '1M';
+    if (len === 2) {
+        // Может быть "R-35,36" – это 1M
+        return '1M';
+    }
+
+    const lastPart = parts[len - 1];
+    const prevPart = parts[len - 2];
+
+    // 500k: 3 части, последняя - заглавная кириллица
+    if (len === 3 && /^[АБВГ]$/.test(lastPart)) return '500k';
+
+    // 300k или 200k: 3 части, последняя - римская цифра
+    if (len === 3 && /^[IVX]+$/i.test(lastPart)) {
+        if (forcedScale === '300k') return '300k';
+        return '200k';
+    }
+    if (len === 3 && /^[IVXLCDM]+$/i.test(lastPart)) return '200k';
+
+    // 100k: 3 части, последняя - число (1-144)
+    if (len === 3 && /^\d+$/.test(lastPart)) return '100k';
+
+    // 50k: 4 части, последняя - заглавная кириллица, предпоследняя - число
+    if (len === 4 && /^[АБВГ]$/.test(lastPart) && /^\d+$/.test(prevPart)) return '50k';
+
+    // 25k: 5 частей, последняя - строчная кириллица
+    if (len === 5 && /^[абвг]$/.test(lastPart)) return '25k';
+
+    // 10k: 6 частей, последняя - цифра 1-4
+    if (len === 6 && /^[1-4]$/.test(lastPart)) return '10k';
+
+    console.warn('Не удалось определить масштаб для:', nom);
+    return '1M';
+}
+
+// --- Разбор миллионной части с запятыми ---
+function parseMillionPart(millionStr) {
+    // Обработка Z (северное полушарие, 88-90°)
+    if (/^Z$/i.test(millionStr)) {
+        return { row: 'Z', cols: [1], isSpecial: 'Z' };
+    }
+
+    // Разделяем букву и номера колонок (допустим дефис)
+    const match = millionStr.match(/^([A-Va-v])-(\d+(?:,\d+)*)$/i);
+    if (!match) {
+        throw new Error(`Неверный формат миллионного листа: ${millionStr}`);
+    }
+
+    const rowLetter = match[1].toUpperCase();
+    const colNumbers = match[2].split(',').map(n => parseInt(n.trim(), 10));
+
+    // Проверка допустимости
+    if (rowLetter < 'A' || rowLetter > 'V') throw new Error(`Недопустимый ряд: ${rowLetter}`);
+    for (let col of colNumbers) {
+        if (col < 1 || col > 60) throw new Error(`Недопустимая колонна: ${col}`);
+    }
+
+    // Определяем тип (одиночный, сдвоенный, счетверённый)
+    let type = 'single';
+    if (colNumbers.length === 2) type = 'double';
+    else if (colNumbers.length === 4) type = 'quadruple';
+
+    return { row: rowLetter, cols: colNumbers, type };
+}
+
+// --- Разбор номенклатуры в границы ---
 function nomenclatureToBounds(nomenclature, forcedScale = null) {
     let nom = nomenclature.trim();
     const southern = isSouthern(nom);
     nom = cleanNomenclature(nom);
 
-    if (/^Z(?:-1)?$/i.test(nom)) {
+    // Лист Z
+    if (/^Z$/i.test(nom)) {
         if (southern) throw new Error('Лист Z не существует в южном полушарии');
         return L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
     }
 
+    // Убираем скобочную часть (5k/2k), она обрабатывается позже
     let baseNom = nom;
     let bracketPart = '';
     const bracketMatch = nom.match(/^(.+?)\(([^)]+)\)$/);
@@ -119,27 +201,24 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         bracketPart = bracketMatch[2].trim();
     }
 
+    // Разбиваем на миллионную часть и дополнительные части
     const parts = baseNom.split('-');
-    let millionPart = parts[0];
+    let millionPart, extraParts = [];
 
-    if (/^[A-VZ]$/i.test(millionPart) && parts.length > 1 && /^\d+$/.test(parts[1])) {
-        millionPart = millionPart + '-' + parts[1];
-        parts.splice(1, 1);
+    if (parts.length === 1) {
+        // Только буква (например, "L") – считаем колонку 1
+        millionPart = parts[0] + '-1';
+    } else {
+        // Первая часть - буква, вторая - номера колонок
+        millionPart = parts[0] + '-' + parts[1];
+        extraParts = parts.slice(2);
     }
-    if (/^[A-V]\d{1,2}$/i.test(millionPart) && parts.length === 1) {
-        millionPart = millionPart[0] + '-' + millionPart.slice(1);
-        parts[0] = millionPart;
-    }
 
-    const match = millionPart.match(/^([A-V])-(\d+)$/i);
-    if (!match) throw new Error(`Неверный формат миллионного листа: ${millionPart}`);
+    // Парсим миллионную часть
+    const millionInfo = parseMillionPart(millionPart);
 
-    const rowLetter = match[1].toUpperCase();
-    const colNumber = parseInt(match[2], 10);
-    if (rowLetter < 'A' || rowLetter > 'V') throw new Error(`Недопустимый ряд: ${rowLetter}`);
-    if (colNumber < 1 || colNumber > 60) throw new Error(`Недопустимая колонна: ${colNumber}`);
-
-    let rowIndex = rowLetter.charCodeAt(0) - 'A'.charCodeAt(0);
+    // Вычисляем широтные границы
+    const rowIndex = millionInfo.row.charCodeAt(0) - 'A'.charCodeAt(0);
     let latSouth, latNorth;
     if (southern) {
         latSouth = - (rowIndex + 1) * 4;
@@ -149,80 +228,85 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         latNorth = (rowIndex + 1) * 4;
     }
 
-    let lonWest = -180 + (colNumber - 1) * 6;
-    let lonEast = lonWest + 6;
-
-    if (!southern) {
-        if (latSouth >= 60) {
-            if (colNumber % 2 !== 0) lonEast = lonWest + 12;
-            else throw new Error(`Лист ${nomenclature} не существует (сдвоенный)`);
-        }
-        if (latSouth >= 76) {
-            if (colNumber % 4 === 1) lonEast = lonWest + 24;
-            else throw new Error(`Лист ${nomenclature} не существует (счетверённый)`);
-        }
-        if (latSouth >= 88) { lonWest = -180; lonEast = 180; }
+    // Долготные границы
+    let lonWest, lonEast;
+    if (millionInfo.type === 'single') {
+        const col = millionInfo.cols[0];
+        lonWest = -180 + (col - 1) * 6;
+        lonEast = lonWest + 6;
+    } else if (millionInfo.type === 'double') {
+        const col1 = millionInfo.cols[0];
+        const col2 = millionInfo.cols[1];
+        if (col2 !== col1 + 1) throw new Error(`Неверные колонки для сдвоенного листа: ${millionInfo.cols.join(',')}`);
+        lonWest = -180 + (col1 - 1) * 6;
+        lonEast = lonWest + 12;
+    } else if (millionInfo.type === 'quadruple') {
+        const col1 = millionInfo.cols[0];
+        const col4 = millionInfo.cols[3];
+        if (col4 !== col1 + 3) throw new Error(`Неверные колонки для счетверённого листа: ${millionInfo.cols.join(',')}`);
+        lonWest = -180 + (col1 - 1) * 6;
+        lonEast = lonWest + 24;
     }
 
-    let currentBounds = L.latLngBounds(L.latLng(latSouth, lonWest), L.latLng(latNorth, lonEast));
-
-    // Определяем последовательность масштабов на основе количества частей и их типов
-    const numParts = parts.length;
-    const scaleSequence = [];
-
-    if (numParts >= 2) {
-        // Части после миллионного листа
-        const extraParts = parts.slice(1);
-
-        for (let i = 0; i < extraParts.length; i++) {
-            const part = extraParts[i];
-            // Определяем масштаб по контексту
-            if (/^\d+$/.test(part) && parseInt(part) >= 1 && parseInt(part) <= 144) {
-                // Может быть 100k, но если это уже не первый раз, то может быть 10k или 5k
-                // Если это третья часть (индекс 2) и перед ней была кириллица — это 10k?
-                // Используем эвристику: если часть одна и число до 144 -> 100k
-                // Если частей больше и предыдущая часть — буква, то 10k
-                if (i === 0) {
-                    scaleSequence.push('100k');
-                } else {
-                    // Проверяем предыдущую часть
-                    const prev = extraParts[i-1];
-                    if (/^[абвг]$/.test(prev)) {
-                        scaleSequence.push('10k');
-                    } else if (/^\d+$/.test(prev)) {
-                        scaleSequence.push('5k'); // на самом деле 5k будет в скобках, сюда не попадём
-                    } else {
-                        scaleSequence.push('100k'); // fallback
-                    }
-                }
-            } else if (/^[АБВГ]$/.test(part)) {
-                // Может быть 500k (если это единственная часть) или 50k (если перед ней число)
-                if (i === 0 && extraParts.length === 1) {
-                    scaleSequence.push('500k');
-                } else {
-                    scaleSequence.push('50k');
-                }
-            } else if (/^[абвг]$/.test(part)) {
-                scaleSequence.push('25k');
-            } else if (/^[IVX]+$/i.test(part)) {
-                // Римские цифры: если I-IX и forcedScale задан, используем его, иначе 200k
-                if (forcedScale === '300k' && /^[IVX]+$/i.test(part) && ['I','II','III','IV','V','VI','VII','VIII','IX'].includes(part.toUpperCase())) {
-                    scaleSequence.push('300k');
-                } else {
-                    scaleSequence.push('200k');
-                }
-            } else if (/^[IVXLCDM]+$/i.test(part)) {
-                scaleSequence.push('200k');
+    // Корректировка для высоких широт (одиночный ввод на широтах, где должны быть сдвоенные/счетверённые)
+    const absLat = Math.abs(latSouth);
+    if (absLat >= 60 && absLat < 76) {
+        if (millionInfo.type === 'single') {
+            const col = millionInfo.cols[0];
+            if (col % 2 !== 0) {
+                lonEast = lonWest + 12;
             } else {
-                console.warn('Неизвестная часть номенклатуры:', part);
+                throw new Error(`Лист ${nomenclature} не существует (должен быть сдвоенный с нечётной первой колонкой)`);
+            }
+        }
+    } else if (absLat >= 76 && absLat < 88) {
+        if (millionInfo.type === 'single') {
+            const col = millionInfo.cols[0];
+            if ((col - 1) % 4 === 0) {
+                lonEast = lonWest + 24;
+            } else {
+                throw new Error(`Лист ${nomenclature} не существует (должен быть счетверённый с колонкой вида 1,5,9...)`);
             }
         }
     }
 
-    // Применяем деления последовательно
+    let currentBounds = L.latLngBounds(L.latLng(latSouth, lonWest), L.latLng(latNorth, lonEast));
+
+    // --- Обработка дополнительных частей (более крупные масштабы) ---
+    // Строим последовательность масштабов на основе extraParts
+    const scaleSequence = [];
+    for (let i = 0; i < extraParts.length; i++) {
+        const part = extraParts[i];
+        if (/^\d+$/.test(part) && parseInt(part) >= 1 && parseInt(part) <= 144) {
+            if (i === 0 && extraParts.length === 1) {
+                scaleSequence.push('100k');
+            } else {
+                const prev = extraParts[i-1];
+                if (prev && /^[абвг]$/.test(prev)) {
+                    scaleSequence.push('10k');
+                } else {
+                    scaleSequence.push('100k');
+                }
+            }
+        } else if (/^[АБВГ]$/.test(part)) {
+            if (i === 0 && extraParts.length === 1) {
+                scaleSequence.push('500k');
+            } else {
+                scaleSequence.push('50k');
+            }
+        } else if (/^[абвг]$/.test(part)) {
+            scaleSequence.push('25k');
+        } else if (/^[IVX]+$/i.test(part)) {
+            scaleSequence.push(forcedScale === '300k' ? '300k' : '200k');
+        } else if (/^[IVXLCDM]+$/i.test(part)) {
+            scaleSequence.push('200k');
+        }
+    }
+
+    // Применяем деления
     for (let i = 0; i < scaleSequence.length; i++) {
         const scale = scaleSequence[i];
-        const part = parts[i + 1]; // соответствующая часть
+        const part = extraParts[i];
         const div = divisions[scale];
         if (!div) continue;
 
@@ -248,7 +332,7 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         currentBounds = L.latLngBounds(L.latLng(sheetSouth, sheetWest), L.latLng(sheetNorth, sheetEast));
     }
 
-    // Обработка скобочной части (5k и 2k) — оставляем без изменений
+    // Обработка скобочной части (5k/2k)
     if (bracketPart) {
         const bracketSubParts = bracketPart.split('-').map(s => s.trim());
         const numberPart = bracketSubParts[0];
@@ -296,68 +380,6 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
     }
 
     return currentBounds;
-}
-
-// --- Определение масштаба по номенклатуре (однозначное) ---
-function getScaleFromNomenclature(nom, forcedScale = null) {
-    const cleaned = cleanNomenclature(nom);
-
-    // Если есть скобки — это 5k или 2k
-    if (cleaned.includes('(')) {
-        const afterBracket = cleaned.split('(')[1].split(')')[0];
-        if (afterBracket.includes('-')) return '2k';
-        else return '5k';
-    }
-
-    const parts = cleaned.split('-');
-    const len = parts.length;
-
-    // Миллионный лист: 1 или 2 части (например "N-37" или "N37")
-    if (len === 1) return '1M';
-    if (len === 2) {
-        // Если вторая часть — число, это точно миллионный лист
-        if (/^\d+$/.test(parts[1])) return '1M';
-        // Иначе может быть что-то другое, но по умолчанию 1M
-        return '1M';
-    }
-
-    // Анализ по количеству частей и типам
-    const lastPart = parts[len - 1];
-    const prevPart = parts[len - 2];
-
-    // 1:500 000: 3 части, последняя — заглавная кириллица (А-Г)
-    if (len === 3 && /^[АБВГ]$/.test(lastPart)) return '500k';
-
-    // 1:300 000: 3 части, последняя — римская цифра (I-IX)
-    if (len === 3 && /^[IVX]+$/i.test(lastPart)) {
-        // Если принудительно задан масштаб, возвращаем его
-        if (forcedScale === '300k') return '300k';
-        // Иначе вернём 200k? Лучше вернуть '200k' или вызвать неоднозначность?
-        // Поскольку у нас есть проверка на неоднозначность выше, сюда попадём только если forcedScale задан,
-        // либо если римская цифра > IX (но они обрабатываются отдельно)
-        return '200k';
-    }
-
-    // 1:200 000: 3 части, последняя — римская цифра > IX (X-XXXVI) — однозначно 200k
-    if (len === 3 && /^[IVXLCDM]+$/i.test(lastPart) && !/^[IVX]+$/i.test(lastPart)) return '200k';
-
-    // 1:100 000: 3 части, последняя — число (1-144)
-    if (len === 3 && /^\d+$/.test(lastPart)) return '100k';
-
-    // 1:50 000: 4 части, последняя — заглавная кириллица (А-Г), предпоследняя — число (1-144)
-    if (len === 4 && /^[АБВГ]$/.test(lastPart) && /^\d+$/.test(prevPart)) return '50k';
-
-    // 1:25 000: 5 частей, последняя — строчная кириллица (а-г), предпоследняя — заглавная кириллица
-    if (len === 5 && /^[абвг]$/.test(lastPart) && /^[АБВГ]$/.test(prevPart)) return '25k';
-
-    // 1:10 000: 6 частей, последняя — цифра (1-4), предпоследняя — строчная кириллица
-    if (len === 6 && /^[1-4]$/.test(lastPart) && /^[абвг]$/.test(prevPart)) return '10k';
-
-    // Дополнительные случаи для 5k/2k обработаны выше
-
-    // Если не удалось определить, возвращаем 1M
-    console.warn('Не удалось определить масштаб для:', nom);
-    return '1M';
 }
 
 // --- Генерация дочерних листов ---
@@ -414,39 +436,77 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
     return sheets;
 }
 
-// --- Отрисовка сетки ---
+// --- Отрисовка сетки (с учётом сдвоенных/счетверённых листов) ---
 function updateGrid() {
     gridLayer.clearLayers();
     let sheets = [];
 
     if (!activeParent) {
+        // Режим отображения миллионной сетки
         const viewBounds = map.getBounds();
         const south = Math.floor(viewBounds.getSouth() / 4) * 4;
-        const west = Math.floor(viewBounds.getWest() / 6) * 6;
         const north = viewBounds.getNorth();
-        const east = viewBounds.getEast();
-        let lat = south;
-        while (lat < north) {
-            let lng = west;
-            while (lng < east) {
-                const sheetBounds = L.latLngBounds(L.latLng(lat, lng), L.latLng(lat+4, lng+6));
-                const absRow = Math.floor(lat / 4);
-                let rowLetter, suffix = '';
-                if (lat >= 0) {
-                    rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
-                } else {
-                    rowLetter = String.fromCharCode('A'.charCodeAt(0) + Math.abs(absRow) - 1);
-                    suffix = ' (Ю.П.)';
+
+        for (let lat = south; lat < north; lat += 4) {
+            const absLat = Math.abs(lat);
+            const southern = lat < 0;
+            let lngStep, colStep, type;
+            if (absLat >= 88) {
+                if (!southern) {
+                    // Лист Z
+                    const sheetBounds = L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
+                    sheets.push({ bounds: sheetBounds, nomenclature: 'Z' });
                 }
-                const colNumber = Math.floor((lng + 180) / 6) + 1;
-                const nom = `${rowLetter}-${colNumber}${suffix}`;
-                sheets.push({ bounds: sheetBounds, nomenclature: nom });
-                lng += 6;
+                continue;
+            } else if (absLat >= 76) {
+                lngStep = 24;
+                colStep = 4;
+                type = 'quadruple';
+            } else if (absLat >= 60) {
+                lngStep = 12;
+                colStep = 2;
+                type = 'double';
+            } else {
+                lngStep = 6;
+                colStep = 1;
+                type = 'single';
             }
-            lat += 4;
+
+            let west = Math.floor((viewBounds.getWest() + 180) / lngStep) * lngStep - 180;
+            // Убедимся, что west не меньше -180
+            west = Math.max(west, -180);
+            const east = Math.min(viewBounds.getEast(), 180);
+
+            for (let lng = west; lng < east; lng += lngStep) {
+                const sheetBounds = L.latLngBounds(L.latLng(lat, lng), L.latLng(lat+4, lng+lngStep));
+                const absRow = Math.floor(Math.abs(lat) / 4);
+                let rowLetter, suffix = '';
+                if (southern) {
+                    rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
+                    suffix = ' (Ю.П.)';
+                } else {
+                    rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
+                }
+
+                const startCol = Math.floor((lng + 180) / 6) + 1;
+                let nomenclature;
+                if (type === 'single') {
+                    nomenclature = `${rowLetter}-${startCol}${suffix}`;
+                } else if (type === 'double') {
+                    const firstCol = (startCol % 2 === 0) ? startCol - 1 : startCol;
+                    nomenclature = `${rowLetter}-${firstCol},${firstCol+1}${suffix}`;
+                } else if (type === 'quadruple') {
+                    let firstCol = startCol;
+                    while ((firstCol - 1) % 4 !== 0) firstCol--;
+                    nomenclature = `${rowLetter}-${firstCol},${firstCol+1},${firstCol+2},${firstCol+3}${suffix}`;
+                }
+
+                sheets.push({ bounds: sheetBounds, nomenclature });
+            }
         }
         document.getElementById('current-scale').textContent = '1:1,000,000';
     } else {
+        // Режим дочерней сетки
         if (activeParent.nextScale) {
             sheets = generateSheetsInside(activeParent.bounds, activeParent.nomenclature, activeParent.nextScale);
             const scaleTextMap = {
@@ -485,7 +545,10 @@ function updateGrid() {
             }
         }).addTo(gridLayer);
 
-        let labelText = (!activeParent) ? sheet.nomenclature : sheet.nomenclature.split('-').pop();
+        let labelText = sheet.nomenclature;
+        if (activeParent) {
+            labelText = sheet.nomenclature.split('-').pop();
+        }
         if (sheet.nomenclature.includes('(')) {
             const match = sheet.nomenclature.match(/\(([^)]+)\)/);
             if (match) labelText = match[1];
@@ -521,7 +584,6 @@ function proceedToNextScale(parentScale) {
         return true;
     }
 
-    // Несколько вариантов — панель выбора
     nextScaleButtons.innerHTML = '';
     options.forEach(opt => {
         const btn = document.createElement('button');
@@ -640,17 +702,20 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     proceedToNextScale(scale);
 }
 
-// --- Основная функция отображения листа ---
+// --- Основная функция отображения ---
 function displaySheet(nomenclature) {
     try {
         hideError();
 
         const ambType = checkAmbiguity(nomenclature);
-        if (ambType === 'roman') {
+        if (ambType) {
             pendingNomenclature = nomenclature;
+            pendingAmbiguityType = ambType;
+
             modalMessage.textContent = 'Римская цифра может относиться к масштабу 1:300 000 или 1:200 000. Выберите нужный масштаб:';
             selectOption1.textContent = '1:300 000';
             selectOption2.textContent = '1:200 000';
+
             ambiguousModal.style.display = 'block';
             modalOverlay.style.display = 'block';
             return;
@@ -669,7 +734,7 @@ function displaySheet(nomenclature) {
 function resolveAmbiguity(choice) {
     if (!pendingNomenclature) return;
 
-    const forcedScale = choice === 'option1' ? '300k' : '200k';
+    const forcedScale = (choice === 'option1') ? '300k' : '200k';
 
     try {
         const bounds = nomenclatureToBounds(pendingNomenclature, forcedScale);
@@ -682,6 +747,7 @@ function resolveAmbiguity(choice) {
     ambiguousModal.style.display = 'none';
     modalOverlay.style.display = 'none';
     pendingNomenclature = null;
+    pendingAmbiguityType = null;
 }
 
 selectOption1.addEventListener('click', () => resolveAmbiguity('option1'));
@@ -703,7 +769,8 @@ function goToCoordinates(lat, lng) {
     map.setView([lat, lng], 10);
 
     const southern = lat < 0;
-    const absRow = Math.floor(Math.abs(lat) / 4);
+    const absLat = Math.abs(lat);
+    const absRow = Math.floor(absLat / 4);
     let rowLetter, suffix = '';
     if (southern) {
         rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
@@ -711,18 +778,39 @@ function goToCoordinates(lat, lng) {
     } else {
         rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
     }
-    const colNumber = Math.floor((lng + 180) / 6) + 1;
-    const base = `${rowLetter}-${colNumber}${suffix}`;
 
-    const millionSouth = southern ? - (absRow + 1) * 4 : absRow * 4;
-    const millionNorth = millionSouth + 4;
-    const millionWest = -180 + (colNumber - 1) * 6;
-    const latStep = 4 / 12;
-    const lngStep = 6 / 12;
-    const row = Math.floor((millionNorth - lat) / latStep);
-    const col = Math.floor((lng - millionWest) / lngStep);
-    const num = row * 12 + col + 1;
-    displaySheet(`${base}-${num}`);
+    // Определяем тип листа по абсолютной широте
+    let lngStep;
+    if (absLat >= 88) {
+        if (!southern) {
+            displaySheet('Z');
+        } else {
+            showError('Лист Z не существует в южном полушарии');
+        }
+        return;
+    } else if (absLat >= 76) {
+        lngStep = 24;
+    } else if (absLat >= 60) {
+        lngStep = 12;
+    } else {
+        lngStep = 6;
+    }
+
+    let startCol = Math.floor((lng + 180) / 6) + 1;
+    let nomenclature;
+
+    if (lngStep === 6) {
+        nomenclature = `${rowLetter}-${startCol}${suffix}`;
+    } else if (lngStep === 12) {
+        const firstCol = (startCol % 2 === 0) ? startCol - 1 : startCol;
+        nomenclature = `${rowLetter}-${firstCol},${firstCol+1}${suffix}`;
+    } else if (lngStep === 24) {
+        let firstCol = startCol;
+        while ((firstCol - 1) % 4 !== 0) firstCol--;
+        nomenclature = `${rowLetter}-${firstCol},${firstCol+1},${firstCol+2},${firstCol+3}${suffix}`;
+    }
+
+    displaySheet(nomenclature);
 }
 
 // --- Обработчики интерфейса ---
