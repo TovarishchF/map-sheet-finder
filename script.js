@@ -466,6 +466,8 @@ function updateGrid() {
         }
     }
 
+    const currentZoom = map.getZoom();
+
     sheets.forEach(sheet => {
         const geojson = {
             type: 'Feature',
@@ -483,11 +485,11 @@ function updateGrid() {
         };
 
         const layer = L.geoJSON(geojson, {
-            style: { color: '#1976d2', weight: 1, fillOpacity: 0 },
+            style: { color: '#3b82f6', weight: 1, fillOpacity: 0 },
             onEachFeature: (feature, l) => {
                 l.on('click', () => displaySheet(sheet.nomenclature));
-                l.on('mouseover', () => l.setStyle({ weight: 3, fillOpacity: 0.15 }));
-                l.on('mouseout', () => l.setStyle({ weight: 1, fillOpacity: 0 }));
+                l.on('mouseover', () => l.setStyle({ weight: 3, fillOpacity: 0.1, fillColor: '#3b82f6' }));
+                l.on('mouseout', () => l.setStyle({ weight: 1, fillOpacity: 0, fillColor: '#3b82f6' }));
             }
         }).addTo(gridLayer);
 
@@ -500,11 +502,13 @@ function updateGrid() {
             if (match) labelText = match[1];
         }
 
-        layer.bindTooltip(labelText, {
-            permanent: true,
-            direction: 'center',
-            className: 'sheet-label'
-        });
+        if (currentZoom >= 5) {
+            layer.bindTooltip(labelText, {
+                permanent: true,
+                direction: 'center',
+                className: 'sheet-label'
+            });
+        }
     });
 
     updateBackButtonState();

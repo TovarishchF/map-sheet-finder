@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Советская разграфка | map-sheet-finder</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -10,6 +10,7 @@
 </head>
 <body>
     <div id="app">
+        <!-- Верхняя панель -->
         <div class="top-bar">
             <div class="logo">
                 <h1>Разграфка карт</h1>
@@ -28,6 +29,7 @@
             </div>
         </div>
 
+        <!-- Основная область: карта + боковая панель -->
         <div class="main-area">
             <div class="sidebar">
                 <div class="info-panel">
@@ -57,6 +59,7 @@
                     <div class="legend-item"><span class="color-current"></span> Границы текущего листа</div>
                     <div class="legend-item"><span class="color-grid"></span> Сетка разграфки</div>
                 </div>
+
                 <div class="copyright">
                     © Е.Д. Фанин, 2026
                 </div>
@@ -67,6 +70,7 @@
             </div>
         </div>
 
+        <!-- Плавающая панель выбора масштаба -->
         <div id="next-scale-panel" class="floating-scale-panel" style="display: none;">
             <div class="panel-header">
                 <span>Выберите масштаб</span>
@@ -76,6 +80,7 @@
         </div>
     </div>
 
+    <!-- Модальное окно -->
     <div id="ambiguous-scale-modal" class="modal" style="display: none;">
         <div class="modal-content">
             <h3>Неоднозначная номенклатура</h3>
