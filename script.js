@@ -1,4 +1,3 @@
-// --- Глобальные переменные ---
 const map = L.map('map').setView([55.751244, 37.618423], 6);
 let currentSheetLayer = null;
 let gridLayer = L.layerGroup().addTo(map);
@@ -35,7 +34,6 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
-// --- Иерархия масштабов ---
 const nextScaleOptions = {
     '1M':   ['500k', '300k', '200k', '100k'],
     '100k': ['50k', '5k'],
@@ -49,7 +47,6 @@ const nextScaleOptions = {
     '200k': []
 };
 
-// --- Параметры деления ---
 const divisions = {
     '500k': { rows: 2,  cols: 2,   labels: (i, j) => ['А', 'Б', 'В', 'Г'][i * 2 + j] },
     '300k': { rows: 3,  cols: 3,   labels: (i, j) => ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'][i * 3 + j] },
@@ -83,7 +80,6 @@ function cleanNomenclature(nom) {
     return nom.replace(/\s*\(Ю\.П\.\)\s*/i, '').trim();
 }
 
-// --- Проверка неоднозначности (только римские I-IX) ---
 function checkAmbiguity(nomenclature) {
     const cleaned = cleanNomenclature(nomenclature);
     const parts = cleaned.split('-');
@@ -101,63 +97,11 @@ function checkAmbiguity(nomenclature) {
     return null;
 }
 
-// --- Определение масштаба по структуре номенклатуры ---
-function getScaleFromNomenclature(nom, forcedScale = null) {
-    const cleaned = cleanNomenclature(nom);
-
-    if (cleaned.includes('(')) {
-        const afterBracket = cleaned.split('(')[1].split(')')[0];
-        if (afterBracket.includes('-')) return '2k';
-        else return '5k';
-    }
-
-    // Учитываем запятые в миллионной части (сдвоенные/счетверённые) – это всё равно 1M
-    const parts = cleaned.split('-');
-    const len = parts.length;
-
-    if (len === 1) return '1M';
-    if (len === 2) {
-        // Может быть "R-35,36" – это 1M
-        return '1M';
-    }
-
-    const lastPart = parts[len - 1];
-    const prevPart = parts[len - 2];
-
-    // 500k: 3 части, последняя - заглавная кириллица
-    if (len === 3 && /^[АБВГ]$/.test(lastPart)) return '500k';
-
-    // 300k или 200k: 3 части, последняя - римская цифра
-    if (len === 3 && /^[IVX]+$/i.test(lastPart)) {
-        if (forcedScale === '300k') return '300k';
-        return '200k';
-    }
-    if (len === 3 && /^[IVXLCDM]+$/i.test(lastPart)) return '200k';
-
-    // 100k: 3 части, последняя - число (1-144)
-    if (len === 3 && /^\d+$/.test(lastPart)) return '100k';
-
-    // 50k: 4 части, последняя - заглавная кириллица, предпоследняя - число
-    if (len === 4 && /^[АБВГ]$/.test(lastPart) && /^\d+$/.test(prevPart)) return '50k';
-
-    // 25k: 5 частей, последняя - строчная кириллица
-    if (len === 5 && /^[абвг]$/.test(lastPart)) return '25k';
-
-    // 10k: 6 частей, последняя - цифра 1-4
-    if (len === 6 && /^[1-4]$/.test(lastPart)) return '10k';
-
-    console.warn('Не удалось определить масштаб для:', nom);
-    return '1M';
-}
-
-// --- Разбор миллионной части с запятыми ---
 function parseMillionPart(millionStr) {
-    // Обработка Z (северное полушарие, 88-90°)
     if (/^Z$/i.test(millionStr)) {
         return { row: 'Z', cols: [1], isSpecial: 'Z' };
     }
 
-    // Разделяем букву и номера колонок (допустим дефис)
     const match = millionStr.match(/^([A-Va-v])-(\d+(?:,\d+)*)$/i);
     if (!match) {
         throw new Error(`Неверный формат миллионного листа: ${millionStr}`);
@@ -166,13 +110,11 @@ function parseMillionPart(millionStr) {
     const rowLetter = match[1].toUpperCase();
     const colNumbers = match[2].split(',').map(n => parseInt(n.trim(), 10));
 
-    // Проверка допустимости
     if (rowLetter < 'A' || rowLetter > 'V') throw new Error(`Недопустимый ряд: ${rowLetter}`);
     for (let col of colNumbers) {
         if (col < 1 || col > 60) throw new Error(`Недопустимая колонна: ${col}`);
     }
 
-    // Определяем тип (одиночный, сдвоенный, счетверённый)
     let type = 'single';
     if (colNumbers.length === 2) type = 'double';
     else if (colNumbers.length === 4) type = 'quadruple';
@@ -180,100 +122,7 @@ function parseMillionPart(millionStr) {
     return { row: rowLetter, cols: colNumbers, type };
 }
 
-// --- Разбор номенклатуры в границы ---
-function nomenclatureToBounds(nomenclature, forcedScale = null) {
-    let nom = nomenclature.trim();
-    const southern = isSouthern(nom);
-    nom = cleanNomenclature(nom);
-
-    // Лист Z
-    if (/^Z$/i.test(nom)) {
-        if (southern) throw new Error('Лист Z не существует в южном полушарии');
-        return L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
-    }
-
-    // Убираем скобочную часть (5k/2k), она обрабатывается позже
-    let baseNom = nom;
-    let bracketPart = '';
-    const bracketMatch = nom.match(/^(.+?)\(([^)]+)\)$/);
-    if (bracketMatch) {
-        baseNom = bracketMatch[1].trim();
-        bracketPart = bracketMatch[2].trim();
-    }
-
-    // Разбиваем на миллионную часть и дополнительные части
-    const parts = baseNom.split('-');
-    let millionPart, extraParts = [];
-
-    if (parts.length === 1) {
-        // Только буква (например, "L") – считаем колонку 1
-        millionPart = parts[0] + '-1';
-    } else {
-        // Первая часть - буква, вторая - номера колонок
-        millionPart = parts[0] + '-' + parts[1];
-        extraParts = parts.slice(2);
-    }
-
-    // Парсим миллионную часть
-    const millionInfo = parseMillionPart(millionPart);
-
-    // Вычисляем широтные границы
-    const rowIndex = millionInfo.row.charCodeAt(0) - 'A'.charCodeAt(0);
-    let latSouth, latNorth;
-    if (southern) {
-        latSouth = - (rowIndex + 1) * 4;
-        latNorth = - rowIndex * 4;
-    } else {
-        latSouth = rowIndex * 4;
-        latNorth = (rowIndex + 1) * 4;
-    }
-
-    // Долготные границы
-    let lonWest, lonEast;
-    if (millionInfo.type === 'single') {
-        const col = millionInfo.cols[0];
-        lonWest = -180 + (col - 1) * 6;
-        lonEast = lonWest + 6;
-    } else if (millionInfo.type === 'double') {
-        const col1 = millionInfo.cols[0];
-        const col2 = millionInfo.cols[1];
-        if (col2 !== col1 + 1) throw new Error(`Неверные колонки для сдвоенного листа: ${millionInfo.cols.join(',')}`);
-        lonWest = -180 + (col1 - 1) * 6;
-        lonEast = lonWest + 12;
-    } else if (millionInfo.type === 'quadruple') {
-        const col1 = millionInfo.cols[0];
-        const col4 = millionInfo.cols[3];
-        if (col4 !== col1 + 3) throw new Error(`Неверные колонки для счетверённого листа: ${millionInfo.cols.join(',')}`);
-        lonWest = -180 + (col1 - 1) * 6;
-        lonEast = lonWest + 24;
-    }
-
-    // Корректировка для высоких широт (одиночный ввод на широтах, где должны быть сдвоенные/счетверённые)
-    const absLat = Math.abs(latSouth);
-    if (absLat >= 60 && absLat < 76) {
-        if (millionInfo.type === 'single') {
-            const col = millionInfo.cols[0];
-            if (col % 2 !== 0) {
-                lonEast = lonWest + 12;
-            } else {
-                throw new Error(`Лист ${nomenclature} не существует (должен быть сдвоенный с нечётной первой колонкой)`);
-            }
-        }
-    } else if (absLat >= 76 && absLat < 88) {
-        if (millionInfo.type === 'single') {
-            const col = millionInfo.cols[0];
-            if ((col - 1) % 4 === 0) {
-                lonEast = lonWest + 24;
-            } else {
-                throw new Error(`Лист ${nomenclature} не существует (должен быть счетверённый с колонкой вида 1,5,9...)`);
-            }
-        }
-    }
-
-    let currentBounds = L.latLngBounds(L.latLng(latSouth, lonWest), L.latLng(latNorth, lonEast));
-
-    // --- Обработка дополнительных частей (более крупные масштабы) ---
-    // Строим последовательность масштабов на основе extraParts
+function buildScaleSequence(extraParts, forcedScale = null) {
     const scaleSequence = [];
     for (let i = 0; i < extraParts.length; i++) {
         const part = extraParts[i];
@@ -302,8 +151,120 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
             scaleSequence.push('200k');
         }
     }
+    return scaleSequence;
+}
 
-    // Применяем деления
+function getScaleFromNomenclature(nom, forcedScale = null) {
+    const cleaned = cleanNomenclature(nom);
+    if (/^Z$/i.test(cleaned)) return '1M';
+
+    let baseNom = cleaned;
+    const bracketMatch = cleaned.match(/^(.+?)\(([^)]+)\)$/);
+    if (bracketMatch) {
+        baseNom = bracketMatch[1].trim();
+        const bracketPart = bracketMatch[2].trim();
+        if (bracketPart.includes('-')) return '2k';
+        else return '5k';
+    }
+
+    const parts = baseNom.split('-');
+    if (parts.length === 1) return '1M';
+
+    const millionCandidate = parts[0] + '-' + parts[1];
+    if (/^[A-Z]-\d+(,\d+)*$/.test(millionCandidate)) {
+        if (parts.length === 2) return '1M';
+        const extraParts = parts.slice(2);
+        const scaleSeq = buildScaleSequence(extraParts, forcedScale);
+        return scaleSeq.length > 0 ? scaleSeq[scaleSeq.length - 1] : '1M';
+    }
+
+    return '1M';
+}
+
+function nomenclatureToBounds(nomenclature, forcedScale = null) {
+    let nom = nomenclature.trim();
+    const southern = isSouthern(nom);
+    nom = cleanNomenclature(nom);
+
+    if (/^Z$/i.test(nom)) {
+        if (southern) throw new Error('Лист Z не существует в южном полушарии');
+        return L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
+    }
+
+    let baseNom = nom;
+    let bracketPart = '';
+    const bracketMatch = nom.match(/^(.+?)\(([^)]+)\)$/);
+    if (bracketMatch) {
+        baseNom = bracketMatch[1].trim();
+        bracketPart = bracketMatch[2].trim();
+    }
+
+    const parts = baseNom.split('-');
+    let millionPart, extraParts = [];
+
+    if (parts.length === 1) {
+        millionPart = parts[0] + '-1';
+    } else {
+        millionPart = parts[0] + '-' + parts[1];
+        extraParts = parts.slice(2);
+    }
+
+    const millionInfo = parseMillionPart(millionPart);
+
+    const rowIndex = millionInfo.row.charCodeAt(0) - 'A'.charCodeAt(0);
+    let latSouth, latNorth;
+    if (southern) {
+        latSouth = - (rowIndex + 1) * 4;
+        latNorth = - rowIndex * 4;
+    } else {
+        latSouth = rowIndex * 4;
+        latNorth = (rowIndex + 1) * 4;
+    }
+
+    let lonWest, lonEast;
+    if (millionInfo.type === 'single') {
+        const col = millionInfo.cols[0];
+        lonWest = -180 + (col - 1) * 6;
+        lonEast = lonWest + 6;
+    } else if (millionInfo.type === 'double') {
+        const col1 = millionInfo.cols[0];
+        const col2 = millionInfo.cols[1];
+        if (col2 !== col1 + 1) throw new Error(`Неверные колонки для сдвоенного листа: ${millionInfo.cols.join(',')}`);
+        lonWest = -180 + (col1 - 1) * 6;
+        lonEast = lonWest + 12;
+    } else if (millionInfo.type === 'quadruple') {
+        const col1 = millionInfo.cols[0];
+        const col4 = millionInfo.cols[3];
+        if (col4 !== col1 + 3) throw new Error(`Неверные колонки для счетверённого листа: ${millionInfo.cols.join(',')}`);
+        lonWest = -180 + (col1 - 1) * 6;
+        lonEast = lonWest + 24;
+    }
+
+    const absLat = Math.abs(latSouth);
+    if (absLat >= 60 && absLat < 76) {
+        if (millionInfo.type === 'single') {
+            const col = millionInfo.cols[0];
+            if (col % 2 !== 0) {
+                lonEast = lonWest + 12;
+            } else {
+                throw new Error(`Лист ${nomenclature} не существует (должен быть сдвоенный с нечётной первой колонкой)`);
+            }
+        }
+    } else if (absLat >= 76 && absLat < 88) {
+        if (millionInfo.type === 'single') {
+            const col = millionInfo.cols[0];
+            if ((col - 1) % 4 === 0) {
+                lonEast = lonWest + 24;
+            } else {
+                throw new Error(`Лист ${nomenclature} не существует (должен быть счетверённый с колонкой вида 1,5,9...)`);
+            }
+        }
+    }
+
+    let currentBounds = L.latLngBounds(L.latLng(latSouth, lonWest), L.latLng(latNorth, lonEast));
+
+    const scaleSequence = buildScaleSequence(extraParts, forcedScale);
+
     for (let i = 0; i < scaleSequence.length; i++) {
         const scale = scaleSequence[i];
         const part = extraParts[i];
@@ -332,7 +293,6 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         currentBounds = L.latLngBounds(L.latLng(sheetSouth, sheetWest), L.latLng(sheetNorth, sheetEast));
     }
 
-    // Обработка скобочной части (5k/2k)
     if (bracketPart) {
         const bracketSubParts = bracketPart.split('-').map(s => s.trim());
         const numberPart = bracketSubParts[0];
@@ -382,7 +342,6 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
     return currentBounds;
 }
 
-// --- Генерация дочерних листов ---
 function generateSheetsInside(parentBounds, parentNom, targetScale) {
     const sheets = [];
     const div = divisions[targetScale];
@@ -436,13 +395,11 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
     return sheets;
 }
 
-// --- Отрисовка сетки (с учётом сдвоенных/счетверённых листов) ---
 function updateGrid() {
     gridLayer.clearLayers();
     let sheets = [];
 
     if (!activeParent) {
-        // Режим отображения миллионной сетки
         const viewBounds = map.getBounds();
         const south = Math.floor(viewBounds.getSouth() / 4) * 4;
         const north = viewBounds.getNorth();
@@ -450,34 +407,31 @@ function updateGrid() {
         for (let lat = south; lat < north; lat += 4) {
             const absLat = Math.abs(lat);
             const southern = lat < 0;
-            let lngStep, colStep, type;
+            let lngStep, type;
             if (absLat >= 88) {
                 if (!southern) {
-                    // Лист Z
                     const sheetBounds = L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
                     sheets.push({ bounds: sheetBounds, nomenclature: 'Z' });
                 }
                 continue;
             } else if (absLat >= 76) {
                 lngStep = 24;
-                colStep = 4;
                 type = 'quadruple';
             } else if (absLat >= 60) {
                 lngStep = 12;
-                colStep = 2;
                 type = 'double';
             } else {
                 lngStep = 6;
-                colStep = 1;
                 type = 'single';
             }
 
             let west = Math.floor((viewBounds.getWest() + 180) / lngStep) * lngStep - 180;
-            // Убедимся, что west не меньше -180
             west = Math.max(west, -180);
             const east = Math.min(viewBounds.getEast(), 180);
 
             for (let lng = west; lng < east; lng += lngStep) {
+                if (lng < -180 || lng >= 180) continue;
+
                 const sheetBounds = L.latLngBounds(L.latLng(lat, lng), L.latLng(lat+4, lng+lngStep));
                 const absRow = Math.floor(Math.abs(lat) / 4);
                 let rowLetter, suffix = '';
@@ -506,17 +460,8 @@ function updateGrid() {
         }
         document.getElementById('current-scale').textContent = '1:1,000,000';
     } else {
-        // Режим дочерней сетки
         if (activeParent.nextScale) {
             sheets = generateSheetsInside(activeParent.bounds, activeParent.nomenclature, activeParent.nextScale);
-            const scaleTextMap = {
-                '500k': '1:500,000', '300k': '1:300,000', '200k': '1:200,000',
-                '100k': '1:100,000', '50k': '1:50,000', '25k': '1:25,000',
-                '10k': '1:10,000', '5k': '1:5,000', '2k': '1:2,000'
-            };
-            document.getElementById('current-scale').textContent = scaleTextMap[activeParent.nextScale] || activeParent.nextScale;
-        } else {
-            document.getElementById('current-scale').textContent = '—';
         }
     }
 
@@ -560,7 +505,6 @@ function updateGrid() {
     updateBackButtonState();
 }
 
-// --- Управление переходом к следующему масштабу ---
 function proceedToNextScale(parentScale) {
     const options = nextScaleOptions[parentScale] || [];
 
@@ -573,12 +517,6 @@ function proceedToNextScale(parentScale) {
         if (activeParent) {
             activeParent.nextScale = options[0];
             updateGrid();
-            const scaleTextMap = {
-                '500k': '1:500,000', '300k': '1:300,000', '200k': '1:200,000',
-                '100k': '1:100,000', '50k': '1:50,000', '25k': '1:25,000',
-                '10k': '1:10,000', '5k': '1:5,000', '2k': '1:2,000'
-            };
-            document.getElementById('current-scale').textContent = scaleTextMap[options[0]] || options[0];
         }
         nextScalePanel.style.display = 'none';
         return true;
@@ -597,12 +535,6 @@ function proceedToNextScale(parentScale) {
                 activeParent.nextScale = opt;
                 updateGrid();
                 nextScalePanel.style.display = 'none';
-                const scaleTextMap = {
-                    '500k': '1:500,000', '300k': '1:300,000', '200k': '1:200,000',
-                    '100k': '1:100,000', '50k': '1:50,000', '25k': '1:25,000',
-                    '10k': '1:10,000', '5k': '1:5,000', '2k': '1:2,000'
-                };
-                document.getElementById('current-scale').textContent = scaleTextMap[opt] || opt;
             }
         });
         nextScaleButtons.appendChild(btn);
@@ -611,7 +543,6 @@ function proceedToNextScale(parentScale) {
     return true;
 }
 
-// --- История ---
 function pushHistoryState(nomenclature, bounds, scale) {
     const last = historyStack[historyStack.length - 1];
     if (last && last.nomenclature === nomenclature && last.scale === scale) return;
@@ -619,6 +550,7 @@ function pushHistoryState(nomenclature, bounds, scale) {
     if (historyStack.length > MAX_HISTORY) historyStack.shift();
     updateBackButtonState();
 }
+
 function goBack() {
     if (historyStack.length <= 1) return;
     historyStack.pop();
@@ -651,18 +583,27 @@ function goBack() {
             document.getElementById('current-nomenclature').textContent = activeParent.nomenclature;
             document.getElementById('current-bounds').innerHTML =
                 `С: ${bounds.getNorth().toFixed(4)}°<br>Ю: ${bounds.getSouth().toFixed(4)}°<br>З: ${bounds.getWest().toFixed(4)}°<br>В: ${bounds.getEast().toFixed(4)}°`;
+
+            updateGrid();
             map.fitBounds(bounds, { padding: [50, 50] });
+
+            const scaleTextMap = {
+                '1M': '1:1,000,000', '500k': '1:500,000', '300k': '1:300,000', '200k': '1:200,000',
+                '100k': '1:100,000', '50k': '1:50,000', '25k': '1:25,000',
+                '10k': '1:10,000', '5k': '1:5,000', '2k': '1:2,000'
+            };
+            document.getElementById('current-scale').textContent = scaleTextMap[prev.scale] || prev.scale;
+
             proceedToNextScale(activeParent.scale);
         }
     }
-    updateGrid();
     updateBackButtonState();
 }
+
 function updateBackButtonState() {
     if (backBtn) backBtn.disabled = historyStack.length <= 1;
 }
 
-// --- Финальное отображение листа ---
 function finalizeDisplaySheet(nomenclature, bounds, scale) {
     if (activeParent) {
         pushHistoryState(activeParent.nomenclature, activeParent.bounds, activeParent.scale);
@@ -702,7 +643,6 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     proceedToNextScale(scale);
 }
 
-// --- Основная функция отображения ---
 function displaySheet(nomenclature) {
     try {
         hideError();
@@ -730,7 +670,6 @@ function displaySheet(nomenclature) {
     }
 }
 
-// --- Обработчики модального окна ---
 function resolveAmbiguity(choice) {
     if (!pendingNomenclature) return;
 
@@ -758,7 +697,6 @@ modalOverlay.addEventListener('click', () => {
     pendingNomenclature = null;
 });
 
-// --- Переход по координатам ---
 function goToCoordinates(lat, lng) {
     if (isNaN(lat) || isNaN(lng)) throw new Error('Координаты должны быть числами');
     if (lat < -90 || lat > 90) throw new Error('Широта от -90 до 90');
@@ -779,7 +717,6 @@ function goToCoordinates(lat, lng) {
         rowLetter = String.fromCharCode('A'.charCodeAt(0) + absRow);
     }
 
-    // Определяем тип листа по абсолютной широте
     let lngStep;
     if (absLat >= 88) {
         if (!southern) {
@@ -796,7 +733,11 @@ function goToCoordinates(lat, lng) {
         lngStep = 6;
     }
 
-    let startCol = Math.floor((lng + 180) / 6) + 1;
+    let lngNormalized = lng;
+    while (lngNormalized < -180) lngNormalized += 360;
+    while (lngNormalized >= 180) lngNormalized -= 360;
+
+    let startCol = Math.floor((lngNormalized + 180) / 6) + 1;
     let nomenclature;
 
     if (lngStep === 6) {
@@ -813,7 +754,6 @@ function goToCoordinates(lat, lng) {
     displaySheet(nomenclature);
 }
 
-// --- Обработчики интерфейса ---
 map.on('moveend', updateGrid);
 
 document.getElementById('search-btn').addEventListener('click', () => {
