@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🗺️ Советская разграфка | map-sheet-finder</title>
-    <!-- Подключаем стили Leaflet и наш файл стилей -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
 </head>
@@ -14,53 +13,67 @@
             <h1>🗺️ Разграфка карт</h1>
             <p class="subtitle">Советская система номенклатуры</p>
 
-            <!-- Панель поиска -->
             <div class="search-panel">
                 <h3>🔍 Поиск по номенклатуре</h3>
                 <input type="text" id="search-input" placeholder="Например: N-37-56-А-в-1" />
                 <button id="search-btn">Найти</button>
-                <p class="hint">Либо кликните по листу на карте</p>
+                <p class="hint">Кликните по листу, чтобы увеличить</p>
             </div>
 
-            <!-- Блок с информацией о текущем листе -->
+            <div class="coords-panel">
+                <h3>📍 Перейти к координатам</h3>
+                <div class="coords-input-row">
+                    <input type="text" id="lat-input" placeholder="Широта (dd.dddd)" />
+                    <input type="text" id="lng-input" placeholder="Долгота (dd.dddd)" />
+                </div>
+                <button id="go-coords-btn">Показать на карте</button>
+                <p class="hint">Южная широта и западная долгота — отрицательные</p>
+            </div>
+
             <div class="info-panel">
                 <h3>📌 Текущий лист</h3>
                 <p><strong>Номенклатура:</strong> <span id="current-nomenclature">—</span></p>
                 <p><strong>Масштаб:</strong> <span id="current-scale">—</span></p>
                 <p><strong>Границы:</strong><br><span id="current-bounds">—</span></p>
+                <div id="error-message" style="display: none;"></div>
             </div>
 
-            <!-- Кнопки управления масштабом (разграфка/подъем) -->
-            <div class="scale-controls">
-                <h3>📐 Перейти к масштабу</h3>
-                <div class="scale-buttons">
-                    <button data-scale="1 000 000">1:1M</button>
-                    <button data-scale="500 000">1:500k</button>
-                    <button data-scale="200 000">1:200k</button>
-                    <button data-scale="100 000">1:100k</button>
-                    <button data-scale="50 000">1:50k</button>
-                    <button data-scale="25 000">1:25k</button>
-                    <button data-scale="10 000">1:10k</button>
-                    <button data-scale="5 000">1:5k</button>
-                    <button data-scale="2 000">1:2k</button>
-                </div>
+            <!-- Панель выбора следующего масштаба (появляется динамически) -->
+            <div id="next-scale-panel" class="next-scale-panel" style="display: none;">
+                <h3>🔽 Выберите следующий масштаб</h3>
+                <div id="next-scale-buttons" class="scale-buttons"></div>
             </div>
 
-            <!-- Легенда -->
+            <!-- Кнопка "Назад" -->
+            <div class="nav-panel">
+                <button id="back-btn" disabled>← Назад</button>
+            </div>
+
             <div class="legend">
                 <p><span style="color: #d32f2f;">—</span> Границы текущего листа</p>
                 <p><span style="color: #1976d2;">—</span> Сетка разграфки</p>
             </div>
         </div>
 
-        <!-- Контейнер для карты -->
-        <div id="map"></div>
+        <div id="map">
+            <div class="crosshair"></div>
+        </div>
     </div>
 
-    <!-- Подключаем библиотеки Leaflet и Turf.js -->
+    <!-- Модальное окно и оверлей вынесены за пределы #app -->
+    <div id="ambiguous-scale-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Неоднозначная номенклатура</h3>
+            <p id="modal-message"></p>
+            <div class="modal-buttons">
+                <button id="select-option1"></button>
+                <button id="select-option2"></button>
+            </div>
+        </div>
+    </div>
+    <div id="modal-overlay" class="modal-overlay" style="display: none;"></div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-    <!-- Подключаем нашу логику -->
     <script src="script.js"></script>
 </body>
 </html>
