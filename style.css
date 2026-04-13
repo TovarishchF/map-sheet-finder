@@ -370,6 +370,29 @@ body {
     border-color: #cbd5e1;
 }
 
+.export-btn {
+    width: 100%;
+    margin-top: 12px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #0f172a;
+    padding: 10px;
+    border-radius: 30px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.export-btn:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #3b82f6;
+}
+
+.export-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -491,6 +514,9 @@ body {
 }
 
 @media (max-width: 768px) {
+    .export-btn {
+            display: none;
+    }
     body {
         overflow: auto;
         height: auto;
@@ -561,6 +587,9 @@ body {
 }
 
 @media (max-width: 480px) {
+    .export-btn {
+            display: none;
+    }
     .logo h1 {
         font-size: 1.2rem;
     }

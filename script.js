@@ -17,6 +17,7 @@ const modalOverlay = document.getElementById('modal-overlay');
 const modalMessage = document.getElementById('modal-message');
 const selectOption1 = document.getElementById('select-option1');
 const selectOption2 = document.getElementById('select-option2');
+const exportBtn = document.getElementById('export-geojson-btn');
 
 let pendingNomenclature = null;
 let pendingAmbiguityType = null;
@@ -485,7 +486,7 @@ function updateGrid() {
         };
 
         const layer = L.geoJSON(geojson, {
-            style: { color: '#3b82f6', weight: 1, fillOpacity: 0 },
+            style: { color: '#1976d2', weight: 1, fillOpacity: 0 },
             onEachFeature: (feature, l) => {
                 l.on('click', () => displaySheet(sheet.nomenclature));
                 l.on('mouseover', () => l.setStyle({ weight: 3, fillOpacity: 0.1, fillColor: '#3b82f6' }));
@@ -502,7 +503,7 @@ function updateGrid() {
             if (match) labelText = match[1];
         }
 
-        if (currentZoom >= 5) {
+        if (currentZoom >= 2) {
             layer.bindTooltip(labelText, {
                 permanent: true,
                 direction: 'center',
@@ -575,6 +576,7 @@ function goBack() {
         document.getElementById('bound-east').textContent = '—';
         map.setView([55.751244, 37.618423], 6);
         nextScalePanel.style.display = 'none';
+        exportBtn.disabled = true;
     } else {
         activeParent = { nomenclature: prev.nomenclature, bounds: prev.bounds, scale: prev.scale };
         if (currentSheetLayer) map.removeLayer(currentSheetLayer);
@@ -609,6 +611,7 @@ function goBack() {
             document.getElementById('current-scale').textContent = scaleTextMap[prev.scale] || prev.scale;
 
             proceedToNextScale(activeParent.scale);
+            exportBtn.disabled = false;
         }
     }
     updateBackButtonState();
@@ -616,6 +619,35 @@ function goBack() {
 
 function updateBackButtonState() {
     if (backBtn) backBtn.disabled = historyStack.length <= 1;
+}
+
+function boundsToGeoJSON(bounds) {
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const nw = L.latLng(ne.lat, sw.lng);
+    const se = L.latLng(sw.lat, ne.lng);
+
+    // EPSG:4326, degrees
+    const coordinates = [[
+        [sw.lng, sw.lat],
+        [se.lng, se.lat],
+        [ne.lng, ne.lat],
+        [nw.lng, nw.lat],
+        [sw.lng, sw.lat]
+    ]];
+
+    return {
+        type: "Feature",
+        properties: {
+            nomenclature: activeParent?.nomenclature || "",
+            scale: document.getElementById('current-scale').textContent,
+            area: (bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest())
+        },
+        geometry: {
+            type: "Polygon",
+            coordinates: coordinates
+        }
+    };
 }
 
 function finalizeDisplaySheet(nomenclature, bounds, scale) {
@@ -657,6 +689,7 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     document.getElementById('current-scale').textContent = scaleTextMap[scale] || scale;
 
     proceedToNextScale(scale);
+    exportBtn.disabled = false;
 }
 
 function displaySheet(nomenclature) {
@@ -790,10 +823,31 @@ if (closeScalePanelBtn) {
     });
 }
 
+exportBtn.addEventListener('click', () => {
+    if (!activeParent || !activeParent.bounds) return;
+
+    const feature = boundsToGeoJSON(activeParent.bounds);
+    const geojson = {
+        type: "FeatureCollection",
+        features: [feature]
+    };
+
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeParent.nomenclature.replace(/[^a-zA-Z0-9а-яА-Я-]/g, '_')}.geojson`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});
+
 window.addEventListener('load', () => {
     historyStack = [{ nomenclature: null, bounds: null, scale: null }];
     updateGrid();
     hideError();
     updateBackButtonState();
     nextScalePanel.style.display = 'none';
+    exportBtn.disabled = true;
 });
