@@ -15,8 +15,6 @@ const closeScalePanelBtn = document.getElementById('close-scale-panel');
 const ambiguousModal = document.getElementById('ambiguous-scale-modal');
 const modalOverlay = document.getElementById('modal-overlay');
 const modalMessage = document.getElementById('modal-message');
-const selectOption1 = document.getElementById('select-option1');
-const selectOption2 = document.getElementById('select-option2');
 const exportBtn = document.getElementById('export-geojson-btn');
 
 let pendingNomenclature = null;
@@ -932,33 +930,6 @@ function displaySheet(nomenclature) {
         console.error(e);
     }
 }
-
-function resolveAmbiguity(choice) {
-    if (!pendingNomenclature) return;
-
-    const forcedScale = (choice === 'option1') ? '300k' : '200k';
-
-    try {
-        const bounds = nomenclatureToBounds(pendingNomenclature, forcedScale);
-        const scale = getScaleFromNomenclature(pendingNomenclature, forcedScale);
-        finalizeDisplaySheet(pendingNomenclature, bounds, scale);
-    } catch (e) {
-        showError(e.message);
-    }
-
-    ambiguousModal.style.display = 'none';
-    modalOverlay.style.display = 'none';
-    pendingNomenclature = null;
-    pendingAmbiguityType = null;
-}
-
-selectOption1.addEventListener('click', () => resolveAmbiguity('option1'));
-selectOption2.addEventListener('click', () => resolveAmbiguity('option2'));
-modalOverlay.addEventListener('click', () => {
-    ambiguousModal.style.display = 'none';
-    modalOverlay.style.display = 'none';
-    pendingNomenclature = null;
-});
 
 function goToCoordinates(lat, lng) {
     if (isNaN(lat) || isNaN(lng)) throw new Error('Координаты должны быть числами');
