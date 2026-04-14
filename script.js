@@ -85,7 +85,11 @@ function cleanNomenclature(nom) {
 function checkAmbiguity(nomenclature) {
     const cleaned = cleanNomenclature(nomenclature);
     const parts = cleaned.split('-');
-    if (parts.length < 3) return null;
+    if (parts.length < 2) return null;
+
+    if (parts.length >= 2 && /^[IVX]+$/i.test(parts[0]) && /^[A-Z]-\d+/.test(parts.slice(1).join('-'))) {
+        return 'roman-prefix';
+    }
 
     if (parts.length === 3) {
         const lastPart = parts[2];
@@ -127,8 +131,10 @@ function parseMillionPart(millionStr) {
 function buildScaleSequence(extraParts, forcedScale = null) {
     const scaleSequence = [];
     for (let i = 0; i < extraParts.length; i++) {
-        const part = extraParts[i];
-        if (/^\d+$/.test(part) && parseInt(part) >= 1 && parseInt(part) <= 144) {
+        let part = extraParts[i];
+        const purePart = part.split(',')[0].trim();
+
+        if (/^\d+$/.test(purePart) && parseInt(purePart) >= 1 && parseInt(purePart) <= 144) {
             if (i === 0 && extraParts.length === 1) {
                 scaleSequence.push('100k');
             } else {
@@ -139,17 +145,17 @@ function buildScaleSequence(extraParts, forcedScale = null) {
                     scaleSequence.push('100k');
                 }
             }
-        } else if (/^[АБВГ]$/.test(part)) {
+        } else if (/^[АБВГ]$/.test(purePart)) {
             if (i === 0 && extraParts.length === 1) {
                 scaleSequence.push('500k');
             } else {
                 scaleSequence.push('50k');
             }
-        } else if (/^[абвг]$/.test(part)) {
+        } else if (/^[абвг]$/.test(purePart)) {
             scaleSequence.push('25k');
-        } else if (/^[IVX]+$/i.test(part)) {
+        } else if (/^[IVX]+$/i.test(purePart)) {
             scaleSequence.push(forcedScale === '300k' ? '300k' : '200k');
-        } else if (/^[IVXLCDM]+$/i.test(part)) {
+        } else if (/^[IVXLCDM]+$/i.test(purePart)) {
             scaleSequence.push('200k');
         }
     }
@@ -160,6 +166,11 @@ function getScaleFromNomenclature(nom, forcedScale = null) {
     const cleaned = cleanNomenclature(nom);
     if (/^Z$/i.test(cleaned)) return '1M';
 
+    const parts = cleaned.split('-');
+    if (parts.length >= 2 && /^[IVX]+$/i.test(parts[0])) {
+        return '300k';
+    }
+
     let baseNom = cleaned;
     const bracketMatch = cleaned.match(/^(.+?)\(([^)]+)\)$/);
     if (bracketMatch) {
@@ -169,13 +180,13 @@ function getScaleFromNomenclature(nom, forcedScale = null) {
         else return '5k';
     }
 
-    const parts = baseNom.split('-');
-    if (parts.length === 1) return '1M';
+    const baseParts = baseNom.split('-');
+    if (baseParts.length === 1) return '1M';
 
-    const millionCandidate = parts[0] + '-' + parts[1];
+    const millionCandidate = baseParts[0] + '-' + baseParts[1];
     if (/^[A-Z]-\d+(,\d+)*$/.test(millionCandidate)) {
-        if (parts.length === 2) return '1M';
-        const extraParts = parts.slice(2);
+        if (baseParts.length === 2) return '1M';
+        const extraParts = baseParts.slice(2);
         const scaleSeq = buildScaleSequence(extraParts, forcedScale);
         return scaleSeq.length > 0 ? scaleSeq[scaleSeq.length - 1] : '1M';
     }
@@ -193,6 +204,13 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         return L.latLngBounds(L.latLng(88, -180), L.latLng(90, 180));
     }
 
+    let prefixRoman = null;
+    const parts = nom.split('-');
+    if (parts.length >= 2 && /^[IVX]+$/i.test(parts[0])) {
+        prefixRoman = parts[0].toUpperCase();
+        nom = parts.slice(1).join('-');
+    }
+
     let baseNom = nom;
     let bracketPart = '';
     const bracketMatch = nom.match(/^(.+?)\(([^)]+)\)$/);
@@ -201,14 +219,14 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         bracketPart = bracketMatch[2].trim();
     }
 
-    const parts = baseNom.split('-');
+    const baseParts = baseNom.split('-');
     let millionPart, extraParts = [];
 
-    if (parts.length === 1) {
-        millionPart = parts[0] + '-1';
+    if (baseParts.length === 1) {
+        millionPart = baseParts[0] + '-1';
     } else {
-        millionPart = parts[0] + '-' + parts[1];
-        extraParts = parts.slice(2);
+        millionPart = baseParts[0] + '-' + baseParts[1];
+        extraParts = baseParts.slice(2);
     }
 
     const millionInfo = parseMillionPart(millionPart);
@@ -244,34 +262,63 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
 
     const absLat = Math.abs(latSouth);
     if (absLat >= 60 && absLat < 76) {
-        if (millionInfo.type === 'single') {
+        if (millionInfo.type === 'double') {
             const col = millionInfo.cols[0];
             if (col % 2 !== 0) {
                 lonEast = lonWest + 12;
             } else {
-                throw new Error(`Лист ${nomenclature} не существует (должен быть сдвоенный с нечётной первой колонкой)`);
+                throw new Error(`Сдвоенный лист должен начинаться с нечётной колонки`);
             }
         }
     } else if (absLat >= 76 && absLat < 88) {
-        if (millionInfo.type === 'single') {
+        if (millionInfo.type === 'quadruple') {
             const col = millionInfo.cols[0];
             if ((col - 1) % 4 === 0) {
                 lonEast = lonWest + 24;
             } else {
-                throw new Error(`Лист ${nomenclature} не существует (должен быть счетверённый с колонкой вида 1,5,9...)`);
+                throw new Error(`Счетверённый лист должен начинаться с колонки вида 1,5,9...`);
             }
         }
     }
 
     let currentBounds = L.latLngBounds(L.latLng(latSouth, lonWest), L.latLng(latNorth, lonEast));
 
+    if (prefixRoman) {
+        const div = divisions['300k'];
+        const labels = [];
+        for (let r = 0; r < div.rows; r++) {
+            for (let c = 0; c < div.cols; c++) {
+                labels.push(div.labels(r, c));
+            }
+        }
+        const idx = labels.indexOf(prefixRoman);
+        if (idx === -1) throw new Error(`Неверная римская цифра для 1:300 000: ${prefixRoman}`);
+        const row = Math.floor(idx / div.cols);
+        const col = idx % div.cols;
+        const latStep = (currentBounds.getNorth() - currentBounds.getSouth()) / div.rows;
+        const lngStep = (currentBounds.getEast() - currentBounds.getWest()) / div.cols;
+        const sheetNorth = currentBounds.getNorth() - row * latStep;
+        const sheetSouth = sheetNorth - latStep;
+        const sheetWest = currentBounds.getWest() + col * lngStep;
+        const sheetEast = sheetWest + lngStep;
+        currentBounds = L.latLngBounds(L.latLng(sheetSouth, sheetWest), L.latLng(sheetNorth, sheetEast));
+    }
+
     const scaleSequence = buildScaleSequence(extraParts, forcedScale);
 
     for (let i = 0; i < scaleSequence.length; i++) {
         const scale = scaleSequence[i];
-        const part = extraParts[i];
+        let part = extraParts[i];
         const div = divisions[scale];
         if (!div) continue;
+
+        let isComposite = false;
+        let subParts = [];
+        if (typeof part === 'string' && part.includes(',')) {
+            isComposite = true;
+            subParts = part.split(',').map(p => p.trim());
+            part = subParts[0];
+        }
 
         const labels = [];
         for (let r = 0; r < div.rows; r++) {
@@ -286,13 +333,24 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
         }
         const row = Math.floor(idx / div.cols);
         const col = idx % div.cols;
+
         const latStep = (currentBounds.getNorth() - currentBounds.getSouth()) / div.rows;
-        const lngStep = (currentBounds.getEast() - currentBounds.getWest()) / div.cols;
+        let lngStep = (currentBounds.getEast() - currentBounds.getWest()) / div.cols;
+
         const sheetNorth = currentBounds.getNorth() - row * latStep;
         const sheetSouth = sheetNorth - latStep;
-        const sheetWest = currentBounds.getWest() + col * lngStep;
-        const sheetEast = sheetWest + lngStep;
-        currentBounds = L.latLngBounds(L.latLng(sheetSouth, sheetWest), L.latLng(sheetNorth, sheetEast));
+        let sheetWest = currentBounds.getWest() + col * lngStep;
+        let sheetEast = sheetWest + lngStep;
+
+        if (isComposite) {
+            const count = subParts.length;
+            sheetEast = sheetWest + lngStep * count;
+        }
+
+        currentBounds = L.latLngBounds(
+            L.latLng(sheetSouth, sheetWest),
+            L.latLng(sheetNorth, sheetEast)
+        );
     }
 
     if (bracketPart) {
@@ -364,15 +422,83 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
         const rowNorth = north - i * latStep;
         const rowSouth = rowNorth - latStep;
         for (let j = 0; j < div.cols; j++) {
-            const sheetWest = west + j * lngStep;
-            const sheetEast = sheetWest + lngStep;
+            let sheetWest = west + j * lngStep;
+            let sheetEast = sheetWest + lngStep;
+
+            const centerLat = (rowNorth + rowSouth) / 2;
+            const absLat = Math.abs(centerLat);
+            let suffix;
+
+            if (targetScale === '500k' || targetScale === '200k' || targetScale === '100k') {
+                if (absLat >= 60 && absLat < 76) {
+                    if (targetScale === '500k') {
+                        suffix = div.labels(i, j);
+                    } else {
+                        if (j % 2 === 0) {
+                            sheetEast = sheetWest + 2 * lngStep;
+                            const label1 = div.labels(i, j);
+                            const label2 = div.labels(i, j + 1);
+                            suffix = `${label1},${label2}`;
+                            j++;
+                        } else {
+                            continue;
+                        }
+                    }
+                } else if (absLat >= 76 && absLat < 88) {
+                    if (targetScale === '200k') {
+                        if (j % 3 === 0) {
+                            sheetEast = sheetWest + 3 * lngStep;
+                            const labels = [];
+                            for (let k = 0; k < 3; k++) {
+                                labels.push(div.labels(i, j + k));
+                            }
+                            suffix = labels.join(',');
+                            j += 2;
+                        } else {
+                            continue;
+                        }
+                    } else if (targetScale === '100k') {
+                        if (j === 0) {
+                            sheetEast = east;
+                            const labels = [];
+                            for (let k = 0; k < 4; k++) {
+                                labels.push(div.labels(i, k));
+                            }
+                            suffix = labels.join(',');
+                            j = div.cols;
+                        } else {
+                            continue;
+                        }
+                    } else if (targetScale === '500k') {
+                        if (j === 0) {
+                            sheetEast = west + 2 * lngStep;
+                            const label1 = div.labels(i, 0);
+                            const label2 = div.labels(i, 1);
+                            suffix = `${label1},${label2}`;
+                            j = 1;
+                        } else if (j === 2) {
+                            sheetWest = west + 2 * lngStep;
+                            sheetEast = east;
+                            const label1 = div.labels(i, 2);
+                            const label2 = div.labels(i, 3);
+                            suffix = `${label1},${label2}`;
+                            j = div.cols;
+                        } else {
+                            continue;
+                        }
+                    }
+                } else {
+                    suffix = div.labels(i, j);
+                }
+            } else {
+                suffix = div.labels(i, j);
+            }
 
             const sheetBounds = L.latLngBounds(
                 L.latLng(rowSouth, sheetWest),
                 L.latLng(rowNorth, sheetEast)
             );
 
-            const suffix = div.labels(i, j);
             let nomenclature;
             if (targetScale === '5k') {
                 nomenclature = `${cleanParent}(${suffix})`;
@@ -383,6 +509,8 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
                 } else {
                     nomenclature = `${cleanParent}(${suffix})`;
                 }
+            } else if (targetScale === '300k') {
+                nomenclature = `${suffix}-${cleanParent}`;
             } else {
                 nomenclature = `${cleanParent}-${suffix}`;
             }
@@ -395,6 +523,80 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
         }
     }
     return sheets;
+}
+
+function splitCompositeSheet(nomenclature, bounds, scale) {
+    const cleaned = cleanNomenclature(nomenclature);
+    const southern = isSouthern(nomenclature);
+    let subParts;
+    let count;
+
+    if (scale === '1M') {
+        const parts = cleaned.split('-');
+        if (parts.length < 2) return [];
+        const millionInfo = parseMillionPart(parts[0] + '-' + parts[1]);
+        if (millionInfo.type === 'double') {
+            subParts = millionInfo.cols;
+            count = 2;
+        } else if (millionInfo.type === 'quadruple') {
+            subParts = millionInfo.cols;
+            count = 4;
+        } else {
+            return [];
+        }
+    } else {
+        const parts = cleaned.split('-');
+        const lastPart = parts[parts.length - 1];
+        if (!lastPart.includes(',')) return [];
+        subParts = lastPart.split(',').map(p => p.trim());
+        count = subParts.length;
+    }
+
+    const lonStep = (bounds.getEast() - bounds.getWest()) / count;
+    const sheets = [];
+    const baseParts = cleanNomenclature(nomenclature).split('-');
+
+    for (let idx = 0; idx < count; idx++) {
+        const sheetWest = bounds.getWest() + idx * lonStep;
+        const sheetEast = sheetWest + lonStep;
+        const sheetBounds = L.latLngBounds(
+            L.latLng(bounds.getSouth(), sheetWest),
+            L.latLng(bounds.getNorth(), sheetEast)
+        );
+
+        let singleNom;
+        if (scale === '1M') {
+            singleNom = `${baseParts[0]}-${subParts[idx]}`;
+        } else {
+            const newParts = baseParts.slice();
+            newParts[newParts.length - 1] = subParts[idx];
+            singleNom = newParts.join('-');
+        }
+        if (southern && !singleNom.includes('(Ю.П.)')) {
+            singleNom += ' (Ю.П.)';
+        }
+
+        sheets.push({ bounds: sheetBounds, nomenclature: singleNom });
+    }
+    return sheets;
+}
+
+function isCompositeSheet(nomenclature, scale) {
+    const cleaned = cleanNomenclature(nomenclature);
+    if (scale === '1M') {
+        const parts = cleaned.split('-');
+        if (parts.length >= 2) {
+            try {
+                const info = parseMillionPart(parts[0] + '-' + parts[1]);
+                return info.type === 'double' || info.type === 'quadruple';
+            } catch (e) {
+                return false;
+            }
+        }
+        return false;
+    }
+    const lastPart = cleaned.split('-').pop();
+    return lastPart && lastPart.includes(',');
 }
 
 function updateGrid() {
@@ -462,7 +664,9 @@ function updateGrid() {
         }
         document.getElementById('current-scale').textContent = '1:1,000,000';
     } else {
-        if (activeParent.nextScale) {
+        if (isCompositeSheet(activeParent.nomenclature, activeParent.scale)) {
+            sheets = splitCompositeSheet(activeParent.nomenclature, activeParent.bounds, activeParent.scale);
+        } else if (activeParent.nextScale) {
             sheets = generateSheetsInside(activeParent.bounds, activeParent.nomenclature, activeParent.nextScale);
         }
     }
@@ -496,14 +700,19 @@ function updateGrid() {
 
         let labelText = sheet.nomenclature;
         if (activeParent) {
-            labelText = sheet.nomenclature.split('-').pop();
+            // Для 300k префиксная римская цифра — это первая часть до дефиса
+            if (activeParent.nextScale === '300k' || (activeParent.scale === '1M' && activeParent.nextScale === '300k')) {
+                labelText = sheet.nomenclature.split('-')[0];
+            } else {
+                labelText = sheet.nomenclature.split('-').pop();
+            }
         }
         if (sheet.nomenclature.includes('(')) {
             const match = sheet.nomenclature.match(/\(([^)]+)\)/);
             if (match) labelText = match[1];
         }
 
-        if (currentZoom >= 2) {
+        if (currentZoom >= 4) {
             layer.bindTooltip(labelText, {
                 permanent: true,
                 direction: 'center',
@@ -516,6 +725,11 @@ function updateGrid() {
 }
 
 function proceedToNextScale(parentScale) {
+    if (activeParent && isCompositeSheet(activeParent.nomenclature, activeParent.scale)) {
+        nextScalePanel.style.display = 'none';
+        return false;
+    }
+
     const options = nextScaleOptions[parentScale] || [];
 
     if (options.length === 0) {
@@ -627,7 +841,6 @@ function boundsToGeoJSON(bounds) {
     const nw = L.latLng(ne.lat, sw.lng);
     const se = L.latLng(sw.lat, ne.lng);
 
-    // EPSG:4326, degrees
     const coordinates = [[
         [sw.lng, sw.lat],
         [se.lng, se.lat],
@@ -689,6 +902,9 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     document.getElementById('current-scale').textContent = scaleTextMap[scale] || scale;
 
     proceedToNextScale(scale);
+    if (isCompositeSheet(nomenclature, scale)) {
+        nextScalePanel.style.display = 'none';
+    }
     exportBtn.disabled = false;
 }
 
@@ -697,14 +913,12 @@ function displaySheet(nomenclature) {
         hideError();
 
         const ambType = checkAmbiguity(nomenclature);
-        if (ambType) {
+        if (ambType === 'roman') {
             pendingNomenclature = nomenclature;
             pendingAmbiguityType = ambType;
-
             modalMessage.textContent = 'Римская цифра может относиться к масштабу 1:300 000 или 1:200 000. Выберите нужный масштаб:';
             selectOption1.textContent = '1:300 000';
             selectOption2.textContent = '1:200 000';
-
             ambiguousModal.style.display = 'block';
             modalOverlay.style.display = 'block';
             return;
