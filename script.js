@@ -807,10 +807,10 @@ function goBack() {
                 style: { color: '#d32f2f', weight: 3, fillOpacity: 0.1 }
             }).addTo(map);
             document.getElementById('current-nomenclature').textContent = activeParent.nomenclature;
-            document.getElementById('bound-north').textContent = bounds.getNorth().toFixed(4) + '°';
-            document.getElementById('bound-south').textContent = bounds.getSouth().toFixed(4) + '°';
-            document.getElementById('bound-west').textContent = bounds.getWest().toFixed(4) + '°';
-            document.getElementById('bound-east').textContent = bounds.getEast().toFixed(4) + '°';
+            document.getElementById('bound-north').textContent = ddToDMS(bounds.getNorth(), true);
+            document.getElementById('bound-south').textContent = ddToDMS(bounds.getSouth(), true);
+            document.getElementById('bound-west').textContent  = ddToDMS(bounds.getWest(), false);
+            document.getElementById('bound-east').textContent  = ddToDMS(bounds.getEast(), false);
 
             updateGrid();
             map.fitBounds(bounds, { padding: [50, 50] });
@@ -884,10 +884,10 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     }).addTo(map);
 
     document.getElementById('current-nomenclature').textContent = nomenclature;
-    document.getElementById('bound-north').textContent = bounds.getNorth().toFixed(4) + '°';
-    document.getElementById('bound-south').textContent = bounds.getSouth().toFixed(4) + '°';
-    document.getElementById('bound-west').textContent = bounds.getWest().toFixed(4) + '°';
-    document.getElementById('bound-east').textContent = bounds.getEast().toFixed(4) + '°';
+    document.getElementById('bound-north').textContent = ddToDMS(bounds.getNorth(), true);
+    document.getElementById('bound-south').textContent = ddToDMS(bounds.getSouth(), true);
+    document.getElementById('bound-west').textContent  = ddToDMS(bounds.getWest(), false);
+    document.getElementById('bound-east').textContent  = ddToDMS(bounds.getEast(), false);
 
     map.fitBounds(bounds, { padding: [50, 50] });
 
@@ -986,6 +986,31 @@ function goToCoordinates(lat, lng) {
     }
 
     displaySheet(nomenclature);
+}
+
+function ddToDMS(value, isLat = true) {
+    const dir = isLat
+        ? (value >= 0 ? 'с.ш.' : 'ю.ш.')
+        : (value >= 0 ? 'в.д.' : 'з.д.');
+
+    const abs = Math.abs(value);
+
+    let totalSec = Math.round(abs * 3600 * 10);
+
+    const deg = Math.floor(totalSec / (3600 * 10));
+    totalSec -= deg * 3600 * 10;
+
+    const min = Math.floor(totalSec / (60 * 10));
+    totalSec -= min * 60 * 10;
+
+    const secInt = Math.floor(totalSec / 10);
+    const secDec = totalSec % 10;
+
+    const degStr = String(deg).padStart(2, '0');
+    const minStr = String(min).padStart(2, '0');
+    const secStr = String(secInt).padStart(2, '0') + ',' + secDec;
+
+    return `${degStr}° ${minStr}′ ${secStr}″ ${dir}`;
 }
 
 map.on('moveend', updateGrid);
