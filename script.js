@@ -698,7 +698,6 @@ function updateGrid() {
 
         let labelText = sheet.nomenclature;
         if (activeParent) {
-            // Для 300k префиксная римская цифра — это первая часть до дефиса
             if (activeParent.nextScale === '300k' || (activeParent.scale === '1M' && activeParent.nextScale === '300k')) {
                 labelText = sheet.nomenclature.split('-')[0];
             } else {
@@ -900,6 +899,19 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
     document.getElementById('current-scale').textContent = scaleTextMap[scale] || scale;
 
     proceedToNextScale(scale);
+
+    if (currentMode === 'trainer') {
+        trainerNomEl.textContent = nomenclature;
+        trainerScaleEl.textContent = scaleTextMap[scale] || scale;
+        trainerBoundN.textContent = ddToDMS(bounds.getNorth(), true);
+        trainerBoundS.textContent = ddToDMS(bounds.getSouth(), true);
+        trainerBoundW.textContent = ddToDMS(bounds.getWest(), false);
+        trainerBoundE.textContent = ddToDMS(bounds.getEast(), false);
+        trainerExplanation.textContent = generateExplanation(nomenclature, scale, bounds);
+    }
+
+    addBoundaryLabels(bounds);
+
     if (isCompositeSheet(nomenclature, scale)) {
         nextScalePanel.style.display = 'none';
     }
@@ -915,8 +927,8 @@ function displaySheet(nomenclature) {
             pendingNomenclature = nomenclature;
             pendingAmbiguityType = ambType;
             modalMessage.textContent = 'Римская цифра может относиться к масштабу 1:300 000 или 1:200 000. Выберите нужный масштаб:';
-            selectOption1.textContent = '1:300 000';
-            selectOption2.textContent = '1:200 000';
+            document.getElementById('select-option1').textContent = '1:300 000';
+            document.getElementById('select-option2').textContent = '1:200 000';
             ambiguousModal.style.display = 'block';
             modalOverlay.style.display = 'block';
             return;
@@ -1060,4 +1072,255 @@ window.addEventListener('load', () => {
     updateBackButtonState();
     nextScalePanel.style.display = 'none';
     exportBtn.disabled = true;
+});
+
+const scaleExplanations = {
+    '1M': 'Масштаб 1:1 000 000. Размер листа 4°×6° (в средних широтах). Номенклатура задаётся буквой ряда и номером колонны.',
+    '500k': 'Масштаб 1:500 000 (в 1 см 5 км). Делит миллионный лист на 4 части (2×2): А,Б,В,Г. Размер 2°×3°.',
+    '300k': 'Масштаб 1:300 000 (в 1 см 3 км). Делит миллионный лист на 9 частей (3×3): I–IX. Размер 1°20′×2°.',
+    '200k': 'Масштаб 1:200 000 (в 1 см 2 км). Делит миллионный лист на 36 частей (6×6): I–XXXVI. Размер 40′×1°. В высоких широтах листы сдваиваются.',
+    '100k': 'Масштаб 1:100 000 (в 1 см 1 км). Делит миллионный лист на 144 части (12×12): 1–144. Размер 20′×30′.',
+    '50k': 'Масштаб 1:50 000 (в 1 см 500 м). Делит 100-тысячный лист на 4 части (2×2): А,Б,В,Г. Размер 10′×15′.',
+    '25k': 'Масштаб 1:25 000 (в 1 см 250 м). Делит 50-тысячный лист на 4 части (2×2): а,б,в,г. Размер 5′×7,5′.',
+    '10k': 'Масштаб 1:10 000 (в 1 см 100 м). Делит 25-тысячный лист на 4 части: 1–4. Размер 2′30″×3′45″.',
+    '5k': 'Масштаб 1:5 000 (в 1 см 50 м). Получается делением 100-тысячного листа на 256 частей (16×16), номера в скобках, например (1). Размер 1′15″×1′52.5″.',
+    '2k': 'Масштаб 1:2 000 (в 1 см 20 м). Делит 5-тысячный лист на 9 частей (3×3): а–и. Номенклатура с дефисом в скобках, например (1-а). Размер 25″×37.5″.'
+};
+
+function generateExplanation(nomenclature, scale, bounds) {
+    let text = scaleExplanations[scale] || '';
+    if (isCompositeSheet(nomenclature, scale)) {
+        text += ' Лист является сдвоенным или счетверённым из-за высоких широт (долготный размер уменьшен).';
+    }
+    if (isSouthern(nomenclature)) {
+        text += ' Лист находится в Южном полушарии (Ю.П.).';
+    }
+    return text;
+}
+
+const modeToggleBtn = document.getElementById('mode-toggle-btn');
+const sidebar = document.querySelector('.sidebar');
+const trainerPanel = document.getElementById('trainer-panel');
+const trainerTabs = document.querySelectorAll('.trainer-tab');
+const trainerNomEl = document.getElementById('trainer-current-nomenclature');
+const trainerScaleEl = document.getElementById('trainer-current-scale');
+const trainerBoundN = document.getElementById('trainer-bound-north');
+const trainerBoundS = document.getElementById('trainer-bound-south');
+const trainerBoundW = document.getElementById('trainer-bound-west');
+const trainerBoundE = document.getElementById('trainer-bound-east');
+const trainerExplanation = document.getElementById('trainer-explanation');
+const learningContentEl = document.getElementById('learning-content');
+
+let currentMode = 'reference';
+
+let boundaryLabelsLayer = L.layerGroup().addTo(map);
+
+function clearBoundaryLabels() {
+    boundaryLabelsLayer.clearLayers();
+}
+
+function addBoundaryLabels(bounds) {
+    clearBoundaryLabels();
+    if (!bounds) return;
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const centerLat = (north + south) / 2;
+    const centerLng = (west + east) / 2;
+
+    const labelStyleLat = 'boundary-label lat';
+    const labelStyleLng = 'boundary-label lng';
+
+    const northLabel = L.marker([north, centerLng], {
+        icon: L.divIcon({ className: labelStyleLat, html: ddToDMS(north, true), iconSize: [200, 20], iconAnchor: [100, 10] })
+    }).addTo(boundaryLabelsLayer);
+    const southLabel = L.marker([south, centerLng], {
+        icon: L.divIcon({ className: labelStyleLat, html: ddToDMS(south, true), iconSize: [200, 20], iconAnchor: [100, 10] })
+    }).addTo(boundaryLabelsLayer);
+    const westLabel = L.marker([centerLat, west], {
+        icon: L.divIcon({ className: labelStyleLng, html: ddToDMS(west, false), iconSize: [200, 20], iconAnchor: [100, 10] })
+    }).addTo(boundaryLabelsLayer);
+    const eastLabel = L.marker([centerLat, east], {
+        icon: L.divIcon({ className: labelStyleLng, html: ddToDMS(east, false), iconSize: [200, 20], iconAnchor: [100, 10] })
+    }).addTo(boundaryLabelsLayer);
+}
+
+function switchMode(mode) {
+    currentMode = mode;
+    clearBoundaryLabels();
+    if (mode === 'reference') {
+        sidebar.style.display = '';
+        trainerPanel.style.display = 'none';
+        modeToggleBtn.textContent = 'Режим: Тренажёр';
+        document.querySelector('.search-section').style.display = '';
+        nextScalePanel.style.display = 'none';
+        updateGrid();
+    } else {
+        sidebar.style.display = 'none';
+        trainerPanel.style.display = 'flex';
+        modeToggleBtn.textContent = 'Режим: Справочник';
+        document.querySelector('.search-section').style.display = 'none';
+        resetToInitialState();
+        activateTrainerTab('learn');
+        renderLearningContent();
+    }
+}
+
+function resetToInitialState() {
+    if (currentSheetLayer) {
+        map.removeLayer(currentSheetLayer);
+        currentSheetLayer = null;
+    }
+    activeParent = null;
+    historyStack = [{ nomenclature: null, bounds: null, scale: null }];
+    document.getElementById('current-nomenclature').textContent = '—';
+    document.getElementById('current-scale').textContent = '—';
+    document.getElementById('bound-north').textContent = '—';
+    document.getElementById('bound-south').textContent = '—';
+    document.getElementById('bound-west').textContent = '—';
+    document.getElementById('bound-east').textContent = '—';
+    exportBtn.disabled = true;
+    nextScalePanel.style.display = 'none';
+    updateGrid();
+    updateBackButtonState();
+}
+
+function activateTrainerTab(tabName) {
+    trainerTabs.forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.dataset.tab === tabName) tab.classList.add('active');
+    });
+    document.querySelectorAll('.trainer-content > div').forEach(div => div.style.display = 'none');
+    if (tabName === 'learn') {
+        document.getElementById('learning-content').style.display = 'block';
+    }
+}
+
+function renderLearningContent() {
+    learningContentEl.innerHTML = `
+        <div class="learning-section">
+            <h4>Основы разграфки</h4>
+            <p>Земная поверхность делится на листы трапециевидной формы. Номенклатура — уникальное буквенно-цифровое обозначение, однозначно определяющее масштаб и положение листа.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:1 000 000</h4>
+            <p>Ряды по 4° широты (A–V), ряд Z у полюса. Колонны по 6° долготы (1–60) от 180° меридиана.</p>
+            <p>Пример: N-37 (Москва), размер 4°×6°.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:500 000</h4>
+            <p>Делит миллионный лист на 4 (2×2). Буквы А–Г, размер 2°×3°.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:300 000</h4>
+            <p>Делит миллионный на 9 (3×3). Римские цифры I–IX перед дефисом, размер 1°20′×2°.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:200 000</h4>
+            <p>Делит миллионный на 36 (6×6). Римские цифры I–XXXVI, размер 40′×1°.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:100 000</h4>
+            <p>Делит миллионный на 144 (12×12). Номера 1–144, размер 20′×30′.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:50 000</h4>
+            <p>Делит 100‑тысячный на 4. Буквы А–Г, размер 10′×15′.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:25 000</h4>
+            <p>Делит 50‑тысячный на 4. Строчные а–г, размер 5′×7,5′.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:10 000</h4>
+            <p>Делит 25‑тысячный на 4 (1–4), размер 2,5′×3,75′.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:5 000</h4>
+            <p>Делит 100‑тысячный на 256 (16×16), номер в скобках, размер 1′15″×1′52,5″.</p>
+        </div>
+        <div class="learning-section">
+            <h4>1:2 000</h4>
+            <p>Делит 5‑тысячный на 9 (3×3). Буквы а–и в скобках после номера 5‑тысячного, размер 25″×37,5″.</p>
+        </div>
+        <div class="learning-section">
+            <h4>Сдвоенные и счетверённые листы</h4>
+            <p>На широтах 60°–76° миллионные листы удваиваются по долготе (12°). 200‑тысячные также объединяются попарно. Свыше 76° – счетверённые миллионные листы (24°). Номенклатура содержит перечисление колонок или номеров через запятую.</p>
+        </div>
+        <div class="learning-section">
+            <h4>Южное полушарие</h4>
+            <p>Добавляется пометка (Ю.П.), например L-34 (Ю.П.).</p>
+        </div>
+        <div class="learning-section">
+            <h4>Как читать номенклатуру</h4>
+            <p>Номенклатура читается слева направо, каждый дефис добавляет уточнение масштаба. Пример: <b>N-37-56-А-а-1</b></p>
+            <ul>
+                <li><b>N-37</b> — миллионный лист (ряд N, колонна 37) масштаб 1:1 000 000.</li>
+                <li><b>56</b> — лист 1:100 000 (деление 12×12).</li>
+                <li><b>А</b> — лист 1:50 000 (деление 2×2).</li>
+                <li><b>а</b> — лист 1:25 000 (строчная буква).</li>
+                <li><b>1</b> — лист 1:10 000 (цифра).</li>
+            </ul>
+            <p>Дальнейшие деления дают 1:5 000 (номер в скобках) и 1:2 000 (номер-буква в скобках).</p>
+        </div>
+    `;
+}
+
+modeToggleBtn.addEventListener('click', () => {
+    if (currentMode === 'reference') {
+        switchMode('trainer');
+    } else {
+        switchMode('reference');
+    }
+});
+
+trainerTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        if (tab.classList.contains('disabled')) return;
+        activateTrainerTab(tab.dataset.tab);
+        if (tab.dataset.tab === 'learn') {
+            renderLearningContent();
+        }
+    });
+});
+
+const cheatsheetBtn = document.getElementById('cheatsheet-btn');
+const cheatsheetModal = document.getElementById('cheatsheet-modal');
+const closeCheatsheetBtn = document.getElementById('close-cheatsheet');
+const cheatsheetTableContainer = document.getElementById('cheatsheet-table-container');
+
+function renderCheatsheet() {
+    cheatsheetTableContainer.innerHTML = `
+        <table>
+            <tr><th>Масштаб</th><th>Делений</th><th>Обозначение</th><th>Размер (Ш×Д)</th><th>Пример</th></tr>
+            <tr><td>1:1 000 000</td><td>—</td><td>Ряд-Колонна</td><td>4°×6°</td><td>N-37</td></tr>
+            <tr><td>1:500 000</td><td>4</td><td>А–Г</td><td>2°×3°</td><td>N-37-А</td></tr>
+            <tr><td>1:300 000</td><td>9</td><td>I–IX</td><td>1°20′×2°</td><td>III-N-37</td></tr>
+            <tr><td>1:200 000</td><td>36</td><td>I–XXXVI</td><td>40′×1°</td><td>N-37-VI</td></tr>
+            <tr><td>1:100 000</td><td>144</td><td>1–144</td><td>20′×30′</td><td>N-37-56</td></tr>
+            <tr><td>1:50 000</td><td>4</td><td>А–Г</td><td>10′×15′</td><td>N-37-56-А</td></tr>
+            <tr><td>1:25 000</td><td>4</td><td>а–г</td><td>5′×7,5′</td><td>N-37-56-А-а</td></tr>
+            <tr><td>1:10 000</td><td>4</td><td>1–4</td><td>2,5′×3,75′</td><td>N-37-56-А-а-1</td></tr>
+            <tr><td>1:5 000</td><td>256</td><td>(номер)</td><td>1′15″×1′52,5″</td><td>N-37-56(125)</td></tr>
+            <tr><td>1:2 000</td><td>9</td><td>(номер-буква)</td><td>25″×37,5″</td><td>N-37-56(125-а)</td></tr>
+        </table>
+    `;
+}
+
+cheatsheetBtn.addEventListener('click', () => {
+    renderCheatsheet();
+    cheatsheetModal.style.display = 'block';
+    modalOverlay.style.display = 'block';
+});
+
+closeCheatsheetBtn.addEventListener('click', () => {
+    cheatsheetModal.style.display = 'none';
+    modalOverlay.style.display = 'none';
+});
+
+modalOverlay.addEventListener('click', () => {
+    cheatsheetModal.style.display = 'none';
+    ambiguousModal.style.display = 'none';
+    modalOverlay.style.display = 'none';
 });
