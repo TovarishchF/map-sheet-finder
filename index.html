@@ -65,7 +65,7 @@
 
                 <div class="nav-panel">
                     <button id="back-btn" disabled>← Назад</button>
-                    <button id="focus-sheet-btn" disabled> Вернуться к выбранному листу</button>
+                    <button id="focus-sheet-btn" disabled title="Вернуться к выбранному листу">К листу</button>
                 </div>
 
                 <div class="legend">
@@ -89,23 +89,33 @@
                     <h3>Тренажёр</h3>
                     <div class="trainer-tabs">
                         <button class="trainer-tab active" data-tab="learn">Обучение</button>
-                        <button class="trainer-tab disabled" data-tab="practice" disabled>Практика</button>
+                        <button class="trainer-tab" data-tab="practice">Практика</button>
                         <button class="trainer-tab disabled" data-tab="exam" disabled>Экзамен</button>
                     </div>
                 </div>
                 <div class="trainer-content" id="trainer-content">
                     <div class="learning-content" id="learning-content"></div>
-                    <div class="selected-sheet-info" id="trainer-selected-sheet">
-                        <h4>Текущий лист</h4>
-                        <div class="info-row"><span class="label">Номенклатура</span><span id="trainer-current-nomenclature" class="value">—</span></div>
-                        <div class="info-row"><span class="label">Масштаб</span><span id="trainer-current-scale" class="value">—</span></div>
-                        <div class="bounds-box">
-                            <div class="bounds-row"><span>С:</span> <span id="trainer-bound-north">—</span></div>
-                            <div class="bounds-row"><span>Ю:</span> <span id="trainer-bound-south">—</span></div>
-                            <div class="bounds-row"><span>З:</span> <span id="trainer-bound-west">—</span></div>
-                            <div class="bounds-row"><span>В:</span> <span id="trainer-bound-east">—</span></div>
+                    <div id="trainer-category-selection" style="display: none;">
+                        <h4>Выберите тип задания</h4>
+                        <div class="category-buttons">
+                            <button data-topic="nom-to-scale">Номенклатура → масштаб</button>
+                            <button data-topic="bounds-to-scale">Границы → масштаб</button>
+                            <button data-topic="neighbor">Соседний лист</button>
+                            <button data-topic="error">Ошибка в номенклатуре</button>
+                            <button data-topic="theory">Теория</button>
                         </div>
-                        <div class="learning-explanation" id="trainer-explanation"></div>
+                    </div>
+                    <div id="trainer-question-area" style="display: none;">
+                        <div id="trainer-score-display">Вопросов: 0 Правильных: 0</div>
+                        <h4>Вопрос</h4>
+                        <p id="trainer-question-text"></p>
+                        <div id="trainer-diagram-container" style="display: none;"></div>
+                        <input type="text" id="trainer-answer-input" placeholder="Введите ответ" style="display: none;">
+                        <div id="trainer-options-container" class="options-container"></div>
+                        <button id="trainer-check-btn">Проверить</button>
+                        <div id="trainer-feedback"></div>
+                        <button id="trainer-next-btn" style="display: none;">Следующий</button>
+                        <button id="trainer-back-to-categories-btn">Назад к выбору темы</button>
                     </div>
                 </div>
                 <div class="copyright">

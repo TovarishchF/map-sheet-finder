@@ -66,6 +66,7 @@ const map = L.map('map', {
 let gridLayer = L.layerGroup().addTo(map);
 let markerLayer = L.layerGroup().addTo(map);
 let boundaryLabelsLayer = L.layerGroup().addTo(map);
+let neighborLayers = L.layerGroup().addTo(map);
 let currentSheetLayer = null;
 let activeParent = null;
 let historyStack = [];
@@ -107,6 +108,26 @@ const closeCheatsheetBtn = document.getElementById('close-cheatsheet');
 const cheatsheetTableContainer = document.getElementById('cheatsheet-table-container');
 const selectOption1 = document.getElementById('select-option1');
 const selectOption2 = document.getElementById('select-option2');
+const trainerQuestionArea = document.getElementById('trainer-question-area');
+const trainerCategorySelection = document.getElementById('trainer-category-selection');
+const trainerQuestionText = document.getElementById('trainer-question-text');
+const trainerDiagramContainer = document.getElementById('trainer-diagram-container');
+const trainerAnswerInput = document.getElementById('trainer-answer-input');
+const trainerOptionsContainer = document.getElementById('trainer-options-container');
+const trainerCheckBtn = document.getElementById('trainer-check-btn');
+const trainerFeedback = document.getElementById('trainer-feedback');
+const trainerNextBtn = document.getElementById('trainer-next-btn');
+const trainerBackToCategoriesBtn = document.getElementById('trainer-back-to-categories-btn');
+const trainerScoreDisplay = document.getElementById('trainer-score-display');
+
+let trainerPracticeState = {
+    topic: null,
+    questionCount: 0,
+    correctCount: 0,
+    currentQuestion: null,
+    answered: false
+};
+let currentNeighborQuestion = null;
 
 let pendingNomenclature = null;
 let pendingAmbiguityType = null;
@@ -139,6 +160,22 @@ function isSouthern(nomenclature) {
 
 function cleanNomenclature(nom) {
     return nom.replace(/\s*\(Ю\.П\.\)\s*/i, '').trim();
+}
+
+function checkAmbiguity(nomenclature) {
+    const cleaned = cleanNomenclature(nomenclature);
+    const parts = cleaned.split('-');
+    if (parts.length < 2) return null;
+    if (parts.length >= 2 && /^[IVX]+$/i.test(parts[0]) && /^[A-Z]-\d+/.test(parts.slice(1).join('-'))) {
+        return 'roman-prefix';
+    }
+    if (parts.length === 3) {
+        const lastPart = parts[2];
+        if (/^[IVX]+$/i.test(lastPart) && ROMAN_VALUES.hasOwnProperty(lastPart.toUpperCase())) {
+            return 'roman';
+        }
+    }
+    return null;
 }
 
 function parseMillionPart(millionStr) {
@@ -324,6 +361,29 @@ function nomenclatureToBounds(nomenclature, forcedScale = null) {
     return currentBounds;
 }
 
+function getNomenclatureAtPoint(lat, lng, targetScale) {
+    const southern = lat < 0;
+    const absLat = Math.abs(lat);
+    const rowLetter = String.fromCharCode('A'.charCodeAt(0) + Math.floor(absLat / 4));
+    const suffix = southern ? ' (Ю.П.)' : '';
+    let lngNorm = lng;
+    while (lngNorm < -180) lngNorm += 360;
+    while (lngNorm >= 180) lngNorm -= 360;
+    let col = Math.floor((lngNorm + 180) / 6) + 1;
+    let nom = `${rowLetter}-${col}${suffix}`;
+
+    if (targetScale === '1M') return nom;
+
+    const millionBounds = nomenclatureToBounds(nom);
+    const sheets = generateSheetsInside(millionBounds, nom, targetScale);
+    for (const sheet of sheets) {
+        if (sheet.bounds.contains(L.latLng(lat, lng))) {
+            return sheet.nomenclature;
+        }
+    }
+    return nom;
+}
+
 function isCompositeSheet(nomenclature, scale) {
     const cleaned = cleanNomenclature(nomenclature);
     if (scale === '1M') {
@@ -466,6 +526,26 @@ function generateSheetsInside(parentBounds, parentNom, targetScale) {
     return sheets;
 }
 
+function densifyBounds(bounds, pointsPerSide = 10) {
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const latStep = (north - south) / pointsPerSide;
+    const lngStep = (east - west) / pointsPerSide;
+    const coords = [];
+    for (let lng = west; lng <= east + lngStep * 0.1; lng += lngStep)
+        coords.push([Math.min(lng, east), south]);
+    for (let lat = south + latStep; lat <= north + latStep * 0.1; lat += latStep)
+        coords.push([east, Math.min(lat, north)]);
+    for (let lng = east - lngStep; lng >= west - lngStep * 0.1; lng -= lngStep)
+        coords.push([Math.max(lng, west), north]);
+    for (let lat = north - latStep; lat >= south - latStep * 0.1; lat -= latStep)
+        coords.push([west, Math.max(lat, south)]);
+    coords.push([west, south]);
+    return coords;
+}
+
 function updateGrid() {
     gridLayer.clearLayers();
     let sheets = [];
@@ -525,13 +605,7 @@ function updateGrid() {
             properties: { nomenclature: sheet.nomenclature },
             geometry: {
                 type: 'Polygon',
-                coordinates: [[
-                    [sheet.bounds.getWest(), sheet.bounds.getSouth()],
-                    [sheet.bounds.getEast(), sheet.bounds.getSouth()],
-                    [sheet.bounds.getEast(), sheet.bounds.getNorth()],
-                    [sheet.bounds.getWest(), sheet.bounds.getNorth()],
-                    [sheet.bounds.getWest(), sheet.bounds.getSouth()]
-                ]]
+                coordinates: [densifyBounds(sheet.bounds, 8)]
             }
         };
         const layer = L.geoJSON(geojson, {
@@ -669,39 +743,7 @@ function ddToDMS(value, isLat = true) {
     return `${degStr}° ${minStr}′ ${secStr}″ ${dir}`;
 }
 
-function densifyBounds(bounds, pointsPerSide = 10) {
-    const south = bounds.getSouth();
-    const north = bounds.getNorth();
-    const west = bounds.getWest();
-    const east = bounds.getEast();
-
-    const latStep = (north - south) / pointsPerSide;
-    const lngStep = (east - west) / pointsPerSide;
-
-    const coords = [];
-
-    for (let lng = west; lng <= east + lngStep * 0.1; lng += lngStep) {
-        coords.push([Math.min(lng, east), south]);
-    }
-    for (let lat = south + latStep; lat <= north + latStep * 0.1; lat += latStep) {
-        coords.push([east, Math.min(lat, north)]);
-    }
-    for (let lng = east - lngStep; lng >= west - lngStep * 0.1; lng -= lngStep) {
-        coords.push([Math.max(lng, west), north]);
-    }
-    for (let lat = north - latStep; lat >= south - latStep * 0.1; lat -= latStep) {
-        coords.push([west, Math.max(lat, south)]);
-    }
-
-    coords.push([west, south]);
-    return coords;
-}
-
 function boundsToGeoJSON(bounds) {
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-    const nw = L.latLng(ne.lat, sw.lng);
-    const se = L.latLng(sw.lat, ne.lng);
     return {
         type: "Feature",
         properties: {
@@ -732,13 +774,7 @@ function highlightActiveSheet(bounds, nomenclature) {
         properties: { nomenclature },
         geometry: {
             type: 'Polygon',
-            coordinates: [[
-                [bounds.getWest(), bounds.getSouth()],
-                [bounds.getEast(), bounds.getSouth()],
-                [bounds.getEast(), bounds.getNorth()],
-                [bounds.getWest(), bounds.getNorth()],
-                [bounds.getWest(), bounds.getSouth()]
-            ]]
+            coordinates: [densifyBounds(bounds, 12)]
         }
     };
     currentSheetLayer = L.geoJSON(geojson, {
@@ -804,6 +840,17 @@ function finalizeDisplaySheet(nomenclature, bounds, scale) {
 function displaySheet(nomenclature) {
     try {
         hideError();
+        const ambType = checkAmbiguity(nomenclature);
+        if (ambType === 'roman') {
+            pendingNomenclature = nomenclature;
+            pendingAmbiguityType = ambType;
+            modalMessage.textContent = 'Римская цифра может относиться к масштабу 1:300 000 или 1:200 000. Выберите нужный масштаб:';
+            selectOption1.textContent = '1:300 000';
+            selectOption2.textContent = '1:200 000';
+            ambiguousModal.style.display = 'block';
+            modalOverlay.style.display = 'block';
+            return;
+        }
         const bounds = nomenclatureToBounds(nomenclature);
         const scale = getScaleFromNomenclature(nomenclature);
         finalizeDisplaySheet(nomenclature, bounds, scale);
@@ -887,6 +934,7 @@ function switchMode(mode) {
         modeToggleBtn.textContent = 'Режим: Тренажёр';
         document.querySelector('.search-section').style.display = '';
         scaleSelectorPanel.style.display = 'none';
+        if (!map.hasLayer(gridLayer)) gridLayer.addTo(map);
         updateGrid();
     } else {
         document.querySelector('.sidebar').style.display = 'none';
@@ -909,6 +957,7 @@ function resetToInitialState() {
     clearInfoPanel();
     exportBtn.disabled = true;
     scaleSelectorPanel.style.display = 'none';
+    if (map.hasLayer(gridLayer)) gridLayer.remove();
     updateGrid();
     updateBackButtonState();
     updateFocusButtonState();
@@ -921,6 +970,8 @@ function activateTrainerTab(tabName) {
     document.querySelectorAll('.trainer-content > div').forEach(div => div.style.display = 'none');
     if (tabName === 'learn') {
         learningContentEl.style.display = 'block';
+    } else if (tabName === 'practice') {
+        startPractice();
     }
 }
 
@@ -959,6 +1010,592 @@ function renderCheatsheet() {
             <tr><td>1:2 000</td><td>9</td><td>(номер-буква)</td><td>25″×37,5″</td><td>N-37-56(125-а)</td></tr>
         </table>
     `;
+}
+
+function generateNomToScaleQuestion() {
+    const bank = ['N-37', 'N-37-А', 'III-N-37', 'N-37-VI', 'N-37-56', 'N-37-56-А', 'N-37-56-А-а', 'N-37-56-А-а-1', 'N-37-56(125)', 'N-37-56(125-а)'];
+    const nom = bank[Math.floor(Math.random() * bank.length)];
+    const scale = getScaleFromNomenclature(nom);
+    const correct = SCALE_NAMES[scale];
+    const allScales = Object.values(SCALE_NAMES).filter(s => s !== correct).slice(0, 3);
+    const options = shuffle([correct, ...allScales]);
+    return { prompt: `Определите масштаб листа: ${nom}`, correctAnswer: correct, options, type: 'options' };
+}
+
+function generateBoundsToScaleQuestion() {
+    const bank = ['N-37', 'N-37-А', 'N-37-56', 'N-37-56-А-а'];
+    const nom = bank[Math.floor(Math.random() * bank.length)];
+    const bounds = nomenclatureToBounds(nom);
+    const correct = SCALE_NAMES[getScaleFromNomenclature(nom)];
+    const allScales = Object.values(SCALE_NAMES).filter(s => s !== correct).slice(0, 3);
+    const options = shuffle([correct, ...allScales]);
+    return {
+        prompt: `Границы листа: С ${ddToDMS(bounds.getNorth(), true)}, Ю ${ddToDMS(bounds.getSouth(), true)}, З ${ddToDMS(bounds.getWest(), false)}, В ${ddToDMS(bounds.getEast(), false)}. Какой масштаб?`,
+        correctAnswer: correct,
+        options,
+        type: 'options',
+        bounds: bounds
+    };
+}
+
+function generateNeighborQuestion() {
+    const candidateParents = ['N-37', 'M-42', 'K-52', 'O-40', 'P-45', 'R-50'];
+    const parentNom = candidateParents[Math.floor(Math.random() * candidateParents.length)];
+    const scale = '100k';
+    const containerBounds = nomenclatureToBounds(parentNom);
+    const allSheets = generateSheetsInside(containerBounds, parentNom, scale);
+    if (allSheets.length < 9) return generateNeighborQuestion();
+
+    let baseNom, baseBounds, neighborData;
+    let attempts = 0;
+    const maxAttempts = 50;
+    do {
+        const idx = Math.floor(Math.random() * allSheets.length);
+        const baseSheet = allSheets[idx];
+        baseNom = baseSheet.nomenclature;
+        baseBounds = baseSheet.bounds;
+        const centerLat = baseBounds.getSouth() + (baseBounds.getNorth() - baseBounds.getSouth()) / 2;
+        const centerLng = baseBounds.getWest() + (baseBounds.getEast() - baseBounds.getWest()) / 2;
+        const latStep = baseBounds.getNorth() - baseBounds.getSouth();
+        const lngStep = baseBounds.getEast() - baseBounds.getWest();
+
+        neighborData = {};
+        const offsets = {
+            north: [latStep * 1.1, 0],
+            south: [-latStep * 1.1, 0],
+            west: [0, -lngStep * 1.1],
+            east: [0, lngStep * 1.1]
+        };
+
+        for (const dir of Object.keys(offsets)) {
+            const [dLat, dLng] = offsets[dir];
+            const pointLat = centerLat + dLat;
+            const pointLng = centerLng + dLng;
+            if (pointLat > 85 || pointLat < -85) continue;
+            try {
+                const neighborNom = getNomenclatureAtPoint(pointLat, pointLng, scale);
+                if (neighborNom !== baseNom) {
+                    const neighborBounds = nomenclatureToBounds(neighborNom);
+                    neighborData[dir] = {
+                        nomenclature: neighborNom,
+                        bounds: neighborBounds
+                    };
+                }
+            } catch (e) {}
+        }
+        attempts++;
+    } while (Object.keys(neighborData).length < 4 && attempts < maxAttempts);
+
+    return {
+        prompt: `Найдите соседей листа <b>${baseNom}</b>. Впишите номенклатуру каждого соседа.`,
+        baseNom,
+        baseBounds,
+        neighbors: neighborData,
+        type: 'neighbor-input'
+    };
+}
+
+function generateErrorQuestion() {
+    const items = [
+        { nom: 'N-37', valid: true },
+        { nom: 'N-37-А', valid: true },
+        { nom: 'III-N-37', valid: true },
+        { nom: 'N-37-VI', valid: true },
+        { nom: 'N-37-56', valid: true },
+        { nom: 'N-37-56-А', valid: true },
+        { nom: 'N-37-56-А-а', valid: true },
+        { nom: 'N-37-56-А-а-1', valid: true },
+        { nom: 'N-37-56(125)', valid: true },
+        { nom: 'N-37-56(125-а)', valid: true },
+        { nom: 'M-42-144', valid: true },
+        { nom: 'K-52-30-Б', valid: true },
+        { nom: 'O-40-37-Б-а', valid: true },
+        { nom: 'Z', valid: true },
+        { nom: 'A-1', valid: true },
+        { nom: 'V-60', valid: true },
+        { nom: 'N-37-A', valid: false, correction: 'N-37-А', explanation: 'Латинская A вместо кириллической А' },
+        { nom: 'N-37-56-а', valid: false, correction: 'N-37-56-А', explanation: 'Лист 1:50 000 обозначается заглавной кириллической буквой (А–Г), а не строчной' },
+        { nom: 'N-37-145', valid: false, correction: 'N-37-144', explanation: 'Номер листа 1:100 000 не может превышать 144 (12×12)' },
+        { nom: 'N-37-0', valid: false, correction: 'N-37-1', explanation: 'Нумерация листов 1:100 000 начинается с 1' },
+        { nom: 'A-01', valid: false, correction: 'A-1', explanation: 'Номер колонны не должен содержать ведущих нулей' },
+        { nom: 'N-37/56', valid: false, correction: 'N-37-56', explanation: 'Разделителем частей номенклатуры служит дефис, а не косая черта' },
+        { nom: 'N-37-56-A', valid: false, correction: 'N-37-56-А', explanation: 'Латинская A вместо кириллической А в обозначении 1:50 000' },
+        { nom: 'N-37-56-А-В', valid: false, correction: 'N-37-56-А-в', explanation: 'Лист 1:25 000 обозначается строчной буквой (а–г), а не заглавной' },
+        { nom: 'N-37-56(125-А)', valid: false, correction: 'N-37-56(125-а)', explanation: 'Лист 1:2 000 обозначается строчной кириллической буквой (а–и)' },
+        { nom: 'III N-37', valid: false, correction: 'III-N-37', explanation: 'Римская цифра для 1:300 000 отделяется от миллионного листа дефисом без пробела' },
+        { nom: 'N-37-56-А-а-5', valid: false, correction: 'N-37-56-А-а-4', explanation: 'Лист 1:10 000 делит 25-тысячный лист только на 4 части (нумерация 1–4)' },
+        { nom: 'N-37-56-А-а-0', valid: false, correction: 'N-37-56-А-а-1', explanation: 'Нумерация листов 1:10 000 начинается с 1' },
+        { nom: 'R-5-12-A', valid: false, correction: 'R-5-12-А', explanation: 'Латинская A вместо кириллической А' },
+        { nom: 'L-34-56-Г-Б', valid: false, correction: 'L-34-56-Г-б', explanation: 'Лист 1:25 000 обозначается строчной буквой (а–г)' },
+        { nom: 'O-40-37-Б-А', valid: false, correction: 'O-40-37-Б-а', explanation: 'Лист 1:25 000 обозначается строчной буквой' },
+        { nom: 'M-42-12-г', valid: false, correction: 'M-42-12-Г', explanation: 'Лист 1:50 000 обозначается заглавной буквой (А–Г)' }
+    ];
+    const item = items[Math.floor(Math.random() * items.length)];
+    const correctAnswer = item.valid ? 'Да' : 'Нет';
+    return {
+        prompt: `Правильна ли номенклатура «${item.nom}»?`,
+        correctAnswer: correctAnswer,
+        options: ['Да', 'Нет'],
+        type: 'options',
+        correction: item.valid ? null : item.correction,
+        explanation: item.valid ? null : item.explanation
+    };
+}
+
+function generateNextQuestion() {
+    if (!trainerPracticeState.topic) return;
+    let question;
+    switch (trainerPracticeState.topic) {
+        case 'nom-to-scale': question = generateNomToScaleQuestion(); break;
+        case 'bounds-to-scale': question = generateBoundsToScaleQuestion(); break;
+        case 'neighbor': question = generateNeighborQuestion(); break;
+        case 'error': question = generateErrorQuestion(); break;
+        case 'theory': question = generateTheoryQuestion(); break;
+        default: return;
+    }
+    trainerPracticeState.currentQuestion = question;
+    trainerPracticeState.answered = false;
+    trainerQuestionText.innerHTML = question.prompt;
+    if (trainerDiagramContainer) {
+        if (question.bounds) {
+            renderBoundsDiagram(question);
+        } else {
+            trainerDiagramContainer.style.display = 'none';
+        }
+    }
+    trainerFeedback.textContent = '';
+    trainerNextBtn.style.display = 'none';
+    neighborLayers.clearLayers();
+    if (currentSheetLayer) map.removeLayer(currentSheetLayer);
+
+    if (question.type === 'neighbor-input') {
+        currentNeighborQuestion = question;
+        trainerAnswerInput.style.display = 'none';
+        trainerOptionsContainer.style.display = 'block';
+        renderNeighborInputs(question);
+        highlightActiveSheet(question.baseBounds, question.baseNom);
+        showNeighborsOnMapNoLabels(question);
+        map.fitBounds(question.baseBounds.pad(1.5));
+    } else if (question.type === 'options') {
+        trainerAnswerInput.style.display = 'none';
+        trainerOptionsContainer.style.display = 'block';
+        renderOptions(question.options);
+    } else {
+        trainerAnswerInput.style.display = 'block';
+        trainerOptionsContainer.style.display = 'none';
+        trainerAnswerInput.value = '';
+    }
+    if (question.type === 'neighbor-input') {
+        trainerCheckBtn.style.display = 'block';
+    } else {
+        trainerCheckBtn.style.display = 'none';
+    }
+}
+
+function generateTheoryQuestion() {
+    const pool = [
+        {
+            prompt: 'Какой размер листа масштаба 1:1 000 000 в средних широтах?',
+            correct: '4°×6°',
+            options: ['4°×6°', '2°×3°', '1°×1.5°', '6°×4°']
+        },
+        {
+            prompt: 'Сколько листов масштаба 1:100 000 в одном миллионном листе?',
+            correct: '144',
+            options: ['144', '36', '256', '64']
+        },
+        {
+            prompt: 'Какими буквами обозначаются листы 1:500 000?',
+            correct: 'А,Б,В,Г',
+            options: ['А,Б,В,Г', 'а,б,в,г', 'I,II,III,IV', '1,2,3,4']
+        },
+        {
+            prompt: 'Что означает пометка (Ю.П.) в номенклатуре?',
+            correct: 'Южное полушарие',
+            options: ['Южное полушарие', 'Южная параллель', 'Юстированная поправка', 'Южный полюс']
+        },
+        {
+            prompt: 'Как записывается номенклатура листа 1:300 000?',
+            correct: 'Римская цифра перед миллионным листом',
+            options: ['Римская цифра перед миллионным листом', 'Римская цифра после миллионного листа', 'Арабская цифра в скобках', 'Строчная буква после дефиса']
+        },
+        {
+            prompt: 'Сколько листов масштаба 1:500 000 в одном миллионном?',
+            correct: '4',
+            options: ['4', '9', '36', '144']
+        },
+        {
+            prompt: 'В каком масштабе листы обозначаются римскими цифрами от I до IX?',
+            correct: '1:300 000',
+            options: ['1:300 000', '1:200 000', '1:500 000', '1:100 000']
+        },
+        {
+            prompt: 'Какая буква используется для самого северного ряда миллионной разграфки (кроме Z)?',
+            correct: 'V',
+            options: ['V', 'U', 'T', 'W']
+        },
+        {
+            prompt: 'Какой масштаб следует за 1:10 000 при дальнейшем делении?',
+            correct: '1:5 000',
+            options: ['1:5 000', '1:2 000', '1:1 000', 'Нет деления']
+        },
+        {
+            prompt: 'Лист масштаба 1:200 000 на широте 62° сдваивается. Как изменится его номенклатура?',
+            correct: 'Номера двух смежных листов перечисляются через запятую',
+            options: [
+                'Номера двух смежных листов перечисляются через запятую',
+                'Добавляется буква "С"',
+                'Удваивается только размер, номенклатура не меняется',
+                'Используется только один номер'
+            ]
+        },
+        {
+            prompt: 'Как образуется номенклатура листа 1:5 000?',
+            correct: 'К номенклатуре 1:100 000 добавляется номер в скобках',
+            options: [
+                'К номенклатуре 1:100 000 добавляется номер в скобках',
+                'К 1:50 000 добавляется строчная буква',
+                'К 1:500 000 добавляется арабская цифра',
+                'Самостоятельная буквенно-цифровая комбинация'
+            ]
+        },
+        {
+            prompt: 'Сколько колонок в миллионной разграфке?',
+            correct: '60',
+            options: ['60', '36', '90', '180']
+        },
+        {
+            prompt: 'Что означает буква "Z" в номенклатуре?',
+            correct: 'Приполярный лист (88°–90°)',
+            options: ['Приполярный лист (88°–90°)', 'Запасной лист', 'Лист южного полушария', 'Ошибочная номенклатура']
+        },
+        {
+            prompt: 'Можно ли встретить лист 1:50 000 с номером 145?',
+            correct: 'Нет, максимальный номер 144',
+            options: ['Нет, максимальный номер 144', 'Да, в высоких широтах', 'Да, для сдвоенных листов', 'Только в южном полушарии']
+        },
+        {
+            prompt: 'Какую площадь в угловых минутах имеет лист 1:100 000?',
+            correct: '20′×30′',
+            options: ['20′×30′', '10′×15′', '40′×1°', '5′×7.5′']
+        },
+        {
+            prompt: 'Какой префикс имеют листы 1:300 000?',
+            correct: 'Римская цифра I–IX',
+            options: ['Римская цифра I–IX', 'Арабская цифра 1–9', 'Буквы А–И', 'Строчные а–и']
+        },
+        {
+            prompt: 'В чём особенность листов масштаба 1:200 000 в высоких широтах?',
+            correct: 'Они сдваиваются по долготе',
+            options: ['Они сдваиваются по долготе', 'Увеличиваются по широте', 'Делятся на большее число частей', 'Их номенклатура содержит букву "С"']
+        },
+        {
+            prompt: 'Как записывается номенклатура сдвоенного миллионного листа?',
+            correct: 'Буква ряда и две колонны через запятую',
+            options: ['Буква ряда и две колонны через запятую', 'Буква ряда и одна удвоенная колонна', 'Две буквы ряда', 'Добавляется "сдв."']
+        },
+        {
+            prompt: 'Каков размер листа 1:50 000?',
+            correct: '10′×15′',
+            options: ['10′×15′', '20′×30′', '5′×7.5′', '2.5′×3.75′']
+        },
+        {
+            prompt: 'Из скольких частей состоит номенклатура листа 1:10 000?',
+            correct: 'После 1:25 000 добавляется цифра 1–4',
+            options: ['После 1:25 000 добавляется цифра 1–4', 'После 1:50 000 добавляется буква', 'Самостоятельный номер', 'Римская цифра']
+        },
+        {
+            prompt: 'Что произойдёт с размером листа 1:1 000 000 на широте более 76°?',
+            correct: 'Лист счетверяется – 24° по долготе',
+            options: ['Лист счетверяется – 24° по долготе', 'Размер остаётся 6°', 'Лист удваивается', 'Лист делится пополам']
+        },
+        {
+            prompt: 'Как обозначаются листы 1:2 000?',
+            correct: 'Номер в скобках с буквой через дефис',
+            options: ['Номер в скобках с буквой через дефис', 'Только строчная буква', 'Только номер', 'Римская цифра']
+        },
+        {
+            prompt: 'С какого меридиана начинается счёт колонн миллионной разграфки?',
+            correct: '180° з.д.',
+            options: ['180° з.д.', '0° (Гринвич)', '90° в.д.', '180° в.д.']
+        },
+        {
+            prompt: 'Ряд A миллионной разграфки находится на широте:',
+            correct: '0°–4°',
+            options: ['0°–4°', '4°–8°', '80°–84°', '0°–8°']
+        },
+        {
+            prompt: 'Для какого масштаба используется деление 6×6?',
+            correct: '1:200 000',
+            options: ['1:200 000', '1:300 000', '1:100 000', '1:500 000']
+        },
+        {
+            prompt: 'Какой масштаб имеет лист с номенклатурой O-40-37-Б-б?',
+            correct: '1:25 000',
+            options: ['1:25 000', '1:50 000', '1:100 000', '1:10 000']
+        },
+        {
+            prompt: 'В каком полушарии возможен лист Z?',
+            correct: 'Только в северном',
+            options: ['Только в северном', 'Только в южном', 'В обоих', 'Ни в одном']
+        },
+        {
+            prompt: 'Какие символы никогда не используются в номенклатуре для 1:25 000?',
+            correct: 'Прописные буквы А–Г',
+            options: ['Прописные буквы А–Г', 'Строчные буквы а–г', 'Цифры', 'Дефис']
+        }
+    ];
+    const q = pool[Math.floor(Math.random() * pool.length)];
+    return {
+        prompt: q.prompt,
+        correctAnswer: q.correct,
+        options: shuffle(q.options),
+        type: 'options'
+    };
+}
+
+function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function renderBoundsDiagram(question) {
+    const container = trainerDiagramContainer;
+    if (!container || !question.bounds) return;
+    container.style.display = 'block';
+    container.innerHTML = '';
+    const north = ddToDMS(question.bounds.getNorth(), true);
+    const south = ddToDMS(question.bounds.getSouth(), true);
+    const west = ddToDMS(question.bounds.getWest(), false);
+    const east = ddToDMS(question.bounds.getEast(), false);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'bounds-diagram';
+    wrapper.innerHTML = `
+        <div class="bounds-diagram-top-label">${north}</div>
+        <div class="bounds-diagram-middle">
+            <div class="bounds-diagram-side-label">${west}</div>
+            <div class="bounds-diagram-sheet"></div>
+            <div class="bounds-diagram-side-label">${east}</div>
+        </div>
+        <div class="bounds-diagram-bottom-label">${south}</div>
+    `;
+    container.appendChild(wrapper);
+}
+
+function startPractice() {
+    trainerPracticeState = {
+        topic: null,
+        questionCount: 0,
+        correctCount: 0,
+        currentQuestion: null,
+        answered: false
+    };
+    if (map.hasLayer(gridLayer)) gridLayer.remove();
+    if (currentSheetLayer) {
+        map.removeLayer(currentSheetLayer);
+        currentSheetLayer = null;
+    }
+    clearBoundaryLabels();
+    neighborLayers.clearLayers();
+    trainerCategorySelection.style.display = 'block';
+    trainerQuestionArea.style.display = 'none';
+    updatePracticeScore();
+    trainerBackToCategoriesBtn.style.display = 'none';
+}
+
+function selectPracticeTopic(topic) {
+    trainerPracticeState.topic = topic;
+    trainerPracticeState.questionCount = 0;
+    trainerPracticeState.correctCount = 0;
+    trainerCategorySelection.style.display = 'none';
+    trainerQuestionArea.style.display = 'block';
+    trainerNextBtn.style.display = 'none';
+    trainerBackToCategoriesBtn.style.display = 'block';
+    neighborLayers.clearLayers();
+    if (currentSheetLayer) map.removeLayer(currentSheetLayer);
+    generateNextQuestion();
+}
+
+function renderOptions(options) {
+    trainerOptionsContainer.innerHTML = '';
+    options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.textContent = opt;
+        btn.addEventListener('click', () => {
+            if (trainerPracticeState.answered) return;
+            checkAnswer(opt);
+        });
+        trainerOptionsContainer.appendChild(btn);
+    });
+}
+
+function renderNeighborInputs(question) {
+    const container = trainerOptionsContainer;
+    container.innerHTML = `
+        <div class="neighbor-inputs">
+            <div class="neighbor-field">
+                <span class="direction">Северный:</span>
+                <input type="text" id="neighbor-north" placeholder="Введите номенклатуру">
+            </div>
+            <div class="neighbor-field">
+                <span class="direction">Южный:</span>
+                <input type="text" id="neighbor-south" placeholder="Введите номенклатуру">
+            </div>
+            <div class="neighbor-field">
+                <span class="direction">Западный:</span>
+                <input type="text" id="neighbor-west" placeholder="Введите номенклатуру">
+            </div>
+            <div class="neighbor-field">
+                <span class="direction">Восточный:</span>
+                <input type="text" id="neighbor-east" placeholder="Введите номенклатуру">
+            </div>
+            <button id="show-neighbors-btn" class="show-map-btn">Показать лист</button>
+        </div>
+    `;
+    document.getElementById('show-neighbors-btn').addEventListener('click', () => {
+        if (currentNeighborQuestion) {
+            showNeighborsOnMapNoLabels(currentNeighborQuestion);
+            map.fitBounds(currentNeighborQuestion.baseBounds.pad(1.5));
+        }
+    });
+}
+
+function checkAnswer(userAnswer) {
+    if (trainerPracticeState.answered) return;
+    trainerPracticeState.questionCount++;
+    const q = trainerPracticeState.currentQuestion;
+    const correct = q.correctAnswer;
+    const isCorrect = normalizeAnswer(userAnswer) === normalizeAnswer(correct);
+    if (isCorrect) trainerPracticeState.correctCount++;
+    let extra = '';
+    if (!isCorrect && q.correction) {
+        extra = ` (верная запись: <b>${q.correction}</b>)`;
+        if (q.explanation) {
+            extra += `<br><span style="font-size: 0.9em; color: #666;">Пояснение: ${q.explanation}</span>`;
+        }
+    }
+    trainerFeedback.innerHTML = isCorrect
+        ? '<span style="color: green;">✓ Правильно</span>'
+        : `<span style="color: red;">✗ Неправильно. Правильный ответ: <b>${correct}</b>${extra}</span>`;
+    trainerPracticeState.answered = true;
+    trainerCheckBtn.style.display = 'none';
+    trainerNextBtn.style.display = 'block';
+    updatePracticeScore();
+}
+
+function checkNeighborAnswers(question) {
+    if (trainerPracticeState.answered) return;
+    const getVal = (dir) => document.getElementById(`neighbor-${dir}`)?.value || '';
+    const answers = {
+        north: getVal('north'),
+        south: getVal('south'),
+        west: getVal('west'),
+        east: getVal('east')
+    };
+    let correctCount = 0;
+    const results = {};
+    const dirMap = {
+        north: 'Северный',
+        south: 'Южный',
+        west: 'Западный',
+        east: 'Восточный'
+    };
+    for (const dir of Object.keys(question.neighbors)) {
+        const correct = question.neighbors[dir]?.nomenclature || '';
+        const user = answers[dir];
+        results[dir] = normalizeAnswer(user) === normalizeAnswer(correct);
+        if (results[dir]) correctCount++;
+    }
+    const total = Object.keys(question.neighbors).length;
+    trainerPracticeState.correctCount += correctCount;
+    trainerPracticeState.questionCount++;
+    const feedback = [];
+    for (const dir of Object.keys(question.neighbors)) {
+        const correct = question.neighbors[dir]?.nomenclature || '';
+        const user = answers[dir];
+        const ok = results[dir];
+        feedback.push(
+            `<span style="color: ${ok ? 'green' : 'red'}">${ok ? '✓' : '✗'} ${dirMap[dir]}: ${ok ? user : `${user || '—'} → ${correct}`}</span>`
+        );
+    }
+    trainerFeedback.innerHTML = `Правильно ${correctCount} из ${total}.<br>${feedback.join('<br>')}`;
+    trainerPracticeState.answered = true;
+    trainerCheckBtn.style.display = 'none';
+    trainerNextBtn.style.display = 'block';
+    updatePracticeScore();
+    showNeighborsOnMap(question);
+}
+
+function normalizeAnswer(str) {
+    return str.replace(/\s+/g, '').replace(/[\.\,]/g, '').toLowerCase();
+}
+
+function updatePracticeScore() {
+    trainerScoreDisplay.textContent = `Вопросов: ${trainerPracticeState.questionCount}   Правильных: ${trainerPracticeState.correctCount}`;
+}
+
+function showNeighborsOnMapNoLabels(question) {
+    neighborLayers.clearLayers();
+    const colors = { north: '#4caf50', south: '#ff9800', west: '#2196f3', east: '#e91e63' };
+    for (const dir of Object.keys(question.neighbors)) {
+        const neighbor = question.neighbors[dir];
+        if (!neighbor || !neighbor.bounds) continue;
+        const geojson = {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Polygon', coordinates: [densifyBounds(neighbor.bounds, 8)] }
+        };
+        L.geoJSON(geojson, {
+            style: { color: colors[dir], weight: 2, fillOpacity: 0.1, fillColor: colors[dir] }
+        }).addTo(neighborLayers);
+    }
+}
+
+function showNeighborsOnMap(question) {
+    neighborLayers.clearLayers();
+    const colors = { north: '#4caf50', south: '#ff9800', west: '#2196f3', east: '#e91e63' };
+    for (const dir of Object.keys(question.neighbors)) {
+        const neighbor = question.neighbors[dir];
+        if (!neighbor || !neighbor.bounds) continue;
+        const geojson = {
+            type: 'Feature',
+            properties: { nomenclature: neighbor.nomenclature },
+            geometry: { type: 'Polygon', coordinates: [densifyBounds(neighbor.bounds, 8)] }
+        };
+        const layer = L.geoJSON(geojson, {
+            style: { color: colors[dir], weight: 2, fillOpacity: 0.1, fillColor: colors[dir] }
+        }).addTo(neighborLayers);
+        layer.bindTooltip(neighbor.nomenclature, {
+            permanent: true,
+            direction: 'center',
+            className: 'sheet-label'
+        });
+    }
+}
+
+L.latLngBounds.prototype.pad = function(ratio) {
+    const latPad = (this.getNorth() - this.getSouth()) * (ratio - 1) / 2;
+    const lngPad = (this.getEast() - this.getWest()) * (ratio - 1) / 2;
+    return L.latLngBounds(
+        L.latLng(this.getSouth() - latPad, this.getWest() - lngPad),
+        L.latLng(this.getNorth() + latPad, this.getEast() + lngPad)
+    );
+};
+
+function endPractice() {
+    trainerCategorySelection.style.display = 'block';
+    trainerQuestionArea.style.display = 'none';
+    trainerPracticeState.topic = null;
+    clearBoundaryLabels();
+    neighborLayers.clearLayers();
+    if (currentSheetLayer) {
+        map.removeLayer(currentSheetLayer);
+        currentSheetLayer = null;
+    }
 }
 
 map.on('moveend', updateGrid);
@@ -1012,6 +1649,7 @@ trainerTabs.forEach(tab => {
         if (tab.classList.contains('disabled')) return;
         activateTrainerTab(tab.dataset.tab);
         if (tab.dataset.tab === 'learn') renderLearningContent();
+        if (tab.dataset.tab === 'practice') startPractice();
     });
 });
 
@@ -1046,4 +1684,29 @@ selectOption2.addEventListener('click', () => {
     const bounds = nomenclatureToBounds(pendingNomenclature, '200k');
     const scale = getScaleFromNomenclature(pendingNomenclature, '200k');
     finalizeDisplaySheet(pendingNomenclature, bounds, scale);
+});
+
+document.querySelectorAll('.category-buttons button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        selectPracticeTopic(btn.dataset.topic);
+    });
+});
+
+trainerCheckBtn.addEventListener('click', () => {
+    if (trainerPracticeState.answered) return;
+    const q = trainerPracticeState.currentQuestion;
+    if (!q) return;
+    if (q.type === 'input') {
+        checkAnswer(trainerAnswerInput.value);
+    } else if (q.type === 'neighbor-input') {
+        checkNeighborAnswers(q);
+    }
+});
+
+trainerNextBtn.addEventListener('click', () => {
+    generateNextQuestion();
+});
+
+trainerBackToCategoriesBtn.addEventListener('click', () => {
+    endPractice();
 });

@@ -823,6 +823,190 @@ body {
     color: #334155;
 }
 
+.category-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.category-buttons button {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    padding: 10px 16px;
+    border-radius: var(--radius-full);
+    font-weight: 500;
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+}
+
+.category-buttons button:hover {
+    background: var(--color-button-hover);
+    border-color: var(--color-border-focus);
+}
+
+.options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.options-container button {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    padding: 10px 16px;
+    border-radius: var(--radius-full);
+    font-weight: 500;
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+}
+
+.options-container button:hover {
+    background: var(--color-button-hover);
+    border-color: var(--color-border-focus);
+}
+
+.neighbor-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.neighbor-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.neighbor-field .direction {
+    width: 90px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.neighbor-field input {
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-base);
+    background: var(--color-surface);
+    transition: border-color 0.15s;
+}
+
+.neighbor-field input:focus {
+    outline: none;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
+.show-map-btn {
+    display: block;
+    width: 100%;
+    margin: 12px 0;
+    background: var(--color-accent);
+    color: white;
+    border: none;
+    padding: 10px;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: center;
+}
+
+.show-map-btn:hover {
+    background: var(--color-accent-hover);
+}
+
+#trainer-feedback {
+    margin: 12px 0;
+    font-size: var(--font-size-sm);
+    min-height: 24px;
+    color: var(--color-text-secondary);
+}
+
+#trainer-score-display {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    margin-bottom: 8px;
+}
+
+#trainer-check-btn,
+#trainer-next-btn,
+#trainer-back-to-categories-btn {
+    background: var(--color-accent);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 12px;
+    width: 100%;
+    text-align: center;
+}
+
+#trainer-check-btn:hover:not(:disabled),
+#trainer-next-btn:hover:not(:disabled),
+#trainer-back-to-categories-btn:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+}
+
+.bounds-diagram {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin: 12px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.bounds-diagram-top-label,
+.bounds-diagram-bottom-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    padding: 4px 0;
+    font-weight: 500;
+}
+
+.bounds-diagram-middle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bounds-diagram-side-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    writing-mode: vertical-lr;
+    padding: 0 4px;
+    font-weight: 500;
+}
+
+.bounds-diagram-sheet {
+    width: 140px;
+    height: 90px;
+    border: 2px solid var(--color-accent);
+    background: #f8fafc;
+    border-radius: 4px;
+    position: relative;
+}
+
 @media (max-width: 1024px) {
     .top-bar {
         flex-wrap: wrap;
