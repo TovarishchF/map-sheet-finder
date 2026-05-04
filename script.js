@@ -669,6 +669,34 @@ function ddToDMS(value, isLat = true) {
     return `${degStr}° ${minStr}′ ${secStr}″ ${dir}`;
 }
 
+function densifyBounds(bounds, pointsPerSide = 10) {
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+
+    const latStep = (north - south) / pointsPerSide;
+    const lngStep = (east - west) / pointsPerSide;
+
+    const coords = [];
+
+    for (let lng = west; lng <= east + lngStep * 0.1; lng += lngStep) {
+        coords.push([Math.min(lng, east), south]);
+    }
+    for (let lat = south + latStep; lat <= north + latStep * 0.1; lat += latStep) {
+        coords.push([east, Math.min(lat, north)]);
+    }
+    for (let lng = east - lngStep; lng >= west - lngStep * 0.1; lng -= lngStep) {
+        coords.push([Math.max(lng, west), north]);
+    }
+    for (let lat = north - latStep; lat >= south - latStep * 0.1; lat -= latStep) {
+        coords.push([west, Math.max(lat, south)]);
+    }
+
+    coords.push([west, south]);
+    return coords;
+}
+
 function boundsToGeoJSON(bounds) {
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
@@ -683,13 +711,7 @@ function boundsToGeoJSON(bounds) {
         },
         geometry: {
             type: "Polygon",
-            coordinates: [[
-                [sw.lng, sw.lat],
-                [se.lng, se.lat],
-                [ne.lng, ne.lat],
-                [nw.lng, nw.lat],
-                [sw.lng, sw.lat]
-            ]]
+            coordinates: [densifyBounds(bounds, 20)]
         }
     };
 }
