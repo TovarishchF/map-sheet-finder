@@ -676,17 +676,14 @@ function proceedToNextScale(parentScale) {
 }
 
 function pushHistoryState(nomenclature, bounds, scale) {
-    const last = historyStack[historyStack.length - 1];
-    if (last && last.nomenclature === nomenclature && last.scale === scale) return;
     historyStack.push({ nomenclature, bounds, scale });
     if (historyStack.length > MAX_HISTORY) historyStack.shift();
     updateBackButtonState();
 }
 
 function goBack() {
-    if (historyStack.length <= 1) return;
-    historyStack.pop();
-    const prev = historyStack[historyStack.length - 1];
+    if (historyStack.length === 0) return;
+    const prev = historyStack.pop();
     if (prev.nomenclature === null) {
         activeParent = null;
         if (currentSheetLayer) map.removeLayer(currentSheetLayer);
@@ -696,26 +693,26 @@ function goBack() {
         map.setView(MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM);
         scaleSelectorPanel.style.display = 'none';
         exportBtn.disabled = true;
+        updateGrid();
     } else {
         activeParent = { nomenclature: prev.nomenclature, bounds: prev.bounds, scale: prev.scale };
+        delete activeParent.nextScale;
         if (currentSheetLayer) map.removeLayer(currentSheetLayer);
-        if (activeParent.bounds) {
-            highlightActiveSheet(activeParent.bounds, activeParent.nomenclature);
-            updateGrid();
-            map.fitBounds(activeParent.bounds, { padding: [50, 50] });
-            currentScaleEl.textContent = SCALE_NAMES[prev.scale] || prev.scale;
-            proceedToNextScale(activeParent.scale);
-            exportBtn.disabled = false;
-            updateBoundaryLabels(activeParent.bounds);
-            updateTrainerPanelIfActive(activeParent.nomenclature, activeParent.scale, activeParent.bounds);
-        }
+        highlightActiveSheet(activeParent.bounds, activeParent.nomenclature);
+        updateGrid();
+        map.fitBounds(activeParent.bounds, { padding: [50, 50] });
+        currentScaleEl.textContent = SCALE_NAMES[prev.scale] || prev.scale;
+        proceedToNextScale(activeParent.scale);
+        exportBtn.disabled = false;
+        updateBoundaryLabels(activeParent.bounds);
+        updateTrainerPanelIfActive(activeParent.nomenclature, activeParent.scale, activeParent.bounds);
     }
     updateBackButtonState();
     updateFocusButtonState();
 }
 
 function updateBackButtonState() {
-    if (backBtn) backBtn.disabled = historyStack.length <= 1;
+    if (backBtn) backBtn.disabled = historyStack.length === 0;
 }
 
 function updateFocusButtonState() {
@@ -810,10 +807,13 @@ function clearBoundaryLabels() {
 
 function finalizeDisplaySheet(nomenclature, bounds, scale) {
     if (activeParent) {
-        pushHistoryState(activeParent.nomenclature, activeParent.bounds, activeParent.scale);
-    } else {
-        pushHistoryState(null, null, null);
+        delete activeParent.nextScale;
     }
+    pushHistoryState(
+        activeParent ? activeParent.nomenclature : null,
+        activeParent ? activeParent.bounds : null,
+        activeParent ? activeParent.scale : null
+    );
     activeParent = { nomenclature, bounds, scale };
     highlightActiveSheet(bounds, nomenclature);
     gridLayer.clearLayers();
@@ -953,7 +953,7 @@ function resetToInitialState() {
         currentSheetLayer = null;
     }
     activeParent = null;
-    historyStack = [{ nomenclature: null, bounds: null, scale: null }];
+    historyStack = [];
     clearInfoPanel();
     exportBtn.disabled = true;
     scaleSelectorPanel.style.display = 'none';
@@ -1631,7 +1631,8 @@ exportBtn.addEventListener('click', () => {
 });
 
 window.addEventListener('load', () => {
-    historyStack = [{ nomenclature: null, bounds: null, scale: null }];
+    historyStack = [];
+    activeParent = null;
     updateGrid();
     hideError();
     updateBackButtonState();
