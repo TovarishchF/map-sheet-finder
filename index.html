@@ -54,6 +54,7 @@
                         <span id="current-scale" class="value">—</span>
                     </div>
                     <div class="bounds-box">
+                        <h3>Координаты границ листа</h3>
                         <div class="bounds-row"><span>С:</span> <span id="bound-north">—</span></div>
                         <div class="bounds-row"><span>Ю:</span> <span id="bound-south">—</span></div>
                         <div class="bounds-row"><span>З:</span> <span id="bound-west">—</span></div>
@@ -69,10 +70,12 @@
                 </div>
 
                 <div class="legend">
+                    <h3>Легенда</h3>
                     <div class="legend-item"><span class="color-current"></span> Границы текущего листа</div>
                     <div class="legend-item"><span class="color-grid"></span> Сетка разграфки</div>
                 </div>
 
+                <button id="restart-tour-btn" class="restart-tour-btn">Помощь</button>
                 <div class="copyright">
                     <span>© Е.Д. Фанин, 2026</span>
                     <a href="https://github.com/TovarishchF/map-sheet-finder" target="_blank" rel="noopener noreferrer" class="github-link">
@@ -88,9 +91,8 @@
                 <div class="trainer-header">
                     <h3>Тренажёр</h3>
                     <div class="trainer-tabs">
-                        <button class="trainer-tab active" data-tab="learn">Обучение</button>
+                        <button class="trainer-tab active" data-tab="learn">Теория</button>
                         <button class="trainer-tab" data-tab="practice">Практика</button>
-                        <button class="trainer-tab disabled" data-tab="exam" disabled>Экзамен</button>
                     </div>
                 </div>
                 <div class="trainer-content" id="trainer-content">

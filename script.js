@@ -1611,6 +1611,11 @@ document.getElementById('go-coords-btn').addEventListener('click', () => {
     try { goToCoordinates(lat, lng); hideError(); } catch (e) { showError(e.message); }
 });
 
+document.getElementById('restart-tour-btn')?.addEventListener('click', () => {
+    localStorage.removeItem('map_sheet_tour_completed_v1');
+    location.reload();
+});
+
 if (backBtn) backBtn.addEventListener('click', goBack);
 if (focusSheetBtn) focusSheetBtn.addEventListener('click', focusOnActiveSheet);
 if (closeScaleSelectorBtn) closeScaleSelectorBtn.addEventListener('click', () => { scaleSelectorPanel.style.display = 'none'; });
@@ -1711,3 +1716,176 @@ trainerNextBtn.addEventListener('click', () => {
 trainerBackToCategoriesBtn.addEventListener('click', () => {
     endPractice();
 });
+
+(function initTour() {
+    const TOUR_KEY = 'map_sheet_tour_completed_v1';
+    if (localStorage.getItem(TOUR_KEY)) return;
+
+    const steps = [
+        {
+            target: '.sidebar .info-panel',
+            title: 'Информация о листе',
+            content: 'Здесь показаны номенклатура листа, его масштаб, границы листа в градусах, минутах и секундах, а также кнопка скачать границы в GeoJSON.',
+            position: 'right'
+        },
+        {
+            target: '.search-box',
+            title: 'Поиск по номенклатуре',
+            content: 'Введите номенклатуру (например, N-37-56) и нажмите «Найти», чтобы открыть лист.',
+            position: 'bottom'
+        },
+        {
+            target: '.coords-box',
+            title: 'Поиск по координатам',
+            content: 'Введите координаты в десятичном формате (например, 57.5678 & 93.0012) и нажмите «Перейти», чтобы перейти к маркеру.',
+            position: 'bottom'
+        },
+        {
+            target: '#mode-toggle-btn',
+            title: 'Режим тренажёра',
+            content: 'Переключение между справочным режимом и тренажёром для проверки знаний.',
+            position: 'bottom'
+        },
+        {
+            target: '#cheatsheet-btn',
+            title: 'Шпаргалка по разграфке',
+            content: 'Краткая памятка по всем масштабам и правилам номенклатуры.',
+            position: 'left'
+        },
+    ];
+
+    let currentStep = 0;
+    let overlay = null;
+    let tooltip = null;
+
+    function createOverlay() {
+        const div = document.createElement('div');
+        div.id = 'tour-overlay';
+        div.style.position = 'fixed';
+        div.style.top = '0';
+        div.style.left = '0';
+        div.style.width = '100%';
+        div.style.height = '100%';
+        div.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+        div.style.zIndex = '9998';
+        div.style.cursor = 'pointer';
+        document.body.appendChild(div);
+        return div;
+    }
+
+    function highlightElement(el) {
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        const highlight = document.createElement('div');
+        highlight.id = 'tour-highlight';
+        highlight.style.position = 'fixed';
+        highlight.style.top = rect.top - 4 + 'px';
+        highlight.style.left = rect.left - 4 + 'px';
+        highlight.style.width = rect.width + 8 + 'px';
+        highlight.style.height = rect.height + 8 + 'px';
+        highlight.style.borderRadius = '12px';
+        highlight.style.boxShadow = '0 0 0 4px #3b82f6, 0 0 0 8px rgba(59,130,246,0.3)';
+        highlight.style.zIndex = '10000';
+        highlight.style.pointerEvents = 'none';
+        document.body.appendChild(highlight);
+        return highlight;
+    }
+
+    function showTooltip(step) {
+        const target = document.querySelector(step.target);
+        if (!target) return false;
+        const rect = target.getBoundingClientRect();
+        const tooltipDiv = document.createElement('div');
+        tooltipDiv.id = 'tour-tooltip';
+        tooltipDiv.style.position = 'fixed';
+        tooltipDiv.style.backgroundColor = '#fff';
+        tooltipDiv.style.color = '#1e293b';
+        tooltipDiv.style.padding = '16px 20px';
+        tooltipDiv.style.borderRadius = '16px';
+        tooltipDiv.style.boxShadow = '0 20px 35px -12px rgba(0,0,0,0.25)';
+        tooltipDiv.style.maxWidth = '320px';
+        tooltipDiv.style.zIndex = '10001';
+        tooltipDiv.style.fontFamily = "'Inter', system-ui, sans-serif";
+        tooltipDiv.style.fontSize = '14px';
+        tooltipDiv.style.lineHeight = '1.5';
+        tooltipDiv.innerHTML = `
+            <div style="font-weight: 700; margin-bottom: 8px; font-size: 16px;">${step.title}</div>
+            <div style="margin-bottom: 16px;">${step.content}</div>
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button id="tour-next" style="background: #3b82f6; color: white; border: none; padding: 6px 16px; border-radius: 30px; font-weight: 500; cursor: pointer;">${currentStep === steps.length - 1 ? 'Завершить' : 'Далее'}</button>
+                <button id="tour-skip" style="background: #e2e8f0; color: #1e293b; border: none; padding: 6px 16px; border-radius: 30px; font-weight: 500; cursor: pointer;">Пропустить</button>
+            </div>
+        `;
+        let top = rect.bottom + 12;
+        let left = rect.left;
+        if (step.position === 'bottom') {
+            top = rect.bottom + 12;
+            left = rect.left;
+        } else if (step.position === 'top') {
+            top = rect.top - tooltipDiv.offsetHeight - 12;
+            left = rect.left;
+        } else if (step.position === 'left') {
+            top = rect.top + rect.height / 2 - 40;
+            left = rect.left - tooltipDiv.offsetWidth - 12;
+        } else if (step.position === 'right') {
+            top = rect.top + rect.height / 2 - 40;
+            left = rect.right + 12;
+        }
+        if (left < 10) left = 10;
+        if (left + 320 > window.innerWidth) left = window.innerWidth - 330;
+        if (top < 10) top = 10;
+        if (top + 200 > window.innerHeight) top = window.innerHeight - 210;
+        tooltipDiv.style.top = top + 'px';
+        tooltipDiv.style.left = left + 'px';
+        document.body.appendChild(tooltipDiv);
+        return tooltipDiv;
+    }
+
+    function cleanup() {
+        if (overlay) overlay.remove();
+        const highlight = document.getElementById('tour-highlight');
+        if (highlight) highlight.remove();
+        if (tooltip) tooltip.remove();
+    }
+
+    function nextStep() {
+        if (currentStep < steps.length - 1) {
+            currentStep++;
+            renderStep();
+        } else {
+            finishTour();
+        }
+    }
+
+    function finishTour() {
+        cleanup();
+        localStorage.setItem(TOUR_KEY, 'true');
+    }
+
+    function renderStep() {
+        cleanup();
+        const step = steps[currentStep];
+        const target = document.querySelector(step.target);
+        if (!target) {
+            finishTour();
+            return;
+        }
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+            overlay = createOverlay();
+            highlightElement(target);
+            tooltip = showTooltip(step);
+            const nextBtn = document.getElementById('tour-next');
+            const skipBtn = document.getElementById('tour-skip');
+            if (nextBtn) nextBtn.addEventListener('click', () => nextStep());
+            if (skipBtn) skipBtn.addEventListener('click', () => finishTour());
+            overlay.addEventListener('click', () => finishTour());
+        }, 300);
+    }
+
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            if (!localStorage.getItem(TOUR_KEY)) renderStep();
+        }, 500);
+    });
+})();
